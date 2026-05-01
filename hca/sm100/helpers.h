@@ -35,6 +35,36 @@ void mbar_init(Mbarrier& bar, int count) {
                  :: "r"(addr), "r"(count));
 }
 
+__device__ __forceinline__
+void mbar_arrive(Mbarrier& bar) {
+    uint32_t addr = static_cast<uint32_t>(__cvta_generic_to_shared(&bar.raw));
+    asm volatile("mbarrier.arrive.shared::cta.b64 _, [%0];"
+                 :: "r"(addr));
+}
+
+__device__ __forceinline__
+void mbar_expect(Mbarrier& bar, int tx_bytes) {
+    uint32_t addr = static_cast<uint32_t>(__cvta_generic_to_shared(&bar.raw));
+    asm volatile("mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
+                 :: "r"(addr), "r"(tx_bytes));
+}
+
+__device__ __forceinline__
+void mbar_wait(Mbarrier& bar, int phase) {
+    uint32_t addr = static_cast<uint32_t>(__cvta_generic_to_shared(&bar.raw));
+    int done = 0;
+    while (!done) {
+        asm volatile(
+            "{\n"
+            ".reg .pred P;\n"
+            "mbarrier.try_wait.parity.shared::cta.b64 P, [%1], %2;\n"
+            "selp.b32 %0, 1, 0, P;\n"
+            "}\n"
+            : "=r"(done) : "r"(addr), "r"(phase)
+        );
+    }
+}
+
 // ============== Smem (fp8 e4m3 latent cache + e8m0 scales + bf16 rope/dequant) ==============
 struct alignas(16) Smem {
     union {
@@ -50,21 +80,14 @@ struct alignas(16) Smem {
 
         // KV phase: live during mma loop
         struct {
-            // dequantized (bf16) tiles fed to mma
-            struct {
-                __nv_bfloat16 latent[TILE_KV * D_NOPE];           // 64 KB  fed K-side and V-side
-                __nv_bfloat16 rope  [TILE_KV * D_ROPE];           //  8 KB
-            } dequant[NUM_BUFS];                                  // 144 KB total
-
-            // raw fp8 staging from TMA, before dequant WG converts -> dequant.latent
-            __nv_fp8_e4m3  raw_latent[NUM_BUFS][TILE_KV * D_NOPE];     // 64 KB
-            __nv_fp8_e8m0  scales    [NUM_BUFS][TILE_KV * SCALES_PER_TOKEN]; // 0.5 KB
+            __nv_fp8_e4m3 latent[NUM_BUFS][TILE_KV * D_NOPE];               //  64 KB  fp8 nope, K and V both
+            __nv_fp8_e8m0 scales[NUM_BUFS][TILE_KV * SCALES_PER_TOKEN];     // 0.5 KB  e8m0 per-128 scales
+            __nv_bfloat16 rope  [NUM_BUFS][TILE_KV * D_ROPE];               //  16 KB  bf16 rope
         } kv;
     } u;
 
-    __nv_bfloat16 s_buf      [B_H * TILE_KV];                     // 8 KB   S/P scratch
-    float         p_exchange [4][16 * TILE_KV / 4];               // 4 KB   warp coord
-    float         rowwise_max[128];                               // 0.5 KB
+    float         p_exchange [4][16 * TILE_KV / 4];   // 4 KB  warp coord
+    float         rowwise_max[128];                   // 0.5 KB
     uint32_t      tmem_start_addr;
 
     // mbarriers (inline)
@@ -72,14 +95,11 @@ struct alignas(16) Smem {
     Mbarrier bar_q_utccp;
     Mbarrier bar_last_store;
 
-    Mbarrier bar_latent_ready[NUM_BUFS];   // dequantized latent ready for mma
-    Mbarrier bar_rope_ready  [NUM_BUFS];
-    Mbarrier bar_raw_ready   [NUM_BUFS];   // raw fp8 landed (producer → dequant WG)
-    Mbarrier bar_raw_free    [NUM_BUFS];   // raw fp8 buf reusable (dequant WG → producer)
-
-    Mbarrier bar_qk_done [NUM_BUFS];
-    Mbarrier bar_so_ready[NUM_BUFS];
-    Mbarrier bar_sv_done [NUM_BUFS];
+    Mbarrier bar_rope_ready[NUM_BUFS];
+    Mbarrier bar_raw_ready [NUM_BUFS];   // fp8 latent + scales landed
+    Mbarrier bar_qk_done   [NUM_BUFS];
+    Mbarrier bar_so_ready  [NUM_BUFS];
+    Mbarrier bar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
 
     // compressor branch (only used when partial_count == 127)
     Mbarrier bar_cprss_in;
@@ -253,13 +273,11 @@ void init_smem(Smem& smem) {
 
         #pragma unroll
         for (int i = 0; i < NUM_BUFS; ++i) {
-            mbar_init(smem.bar_latent_ready[i], 1);
-            mbar_init(smem.bar_rope_ready  [i], 1);
-            mbar_init(smem.bar_raw_ready   [i], 1);
-            mbar_init(smem.bar_raw_free    [i], 128);
-            mbar_init(smem.bar_qk_done     [i], 1);
-            mbar_init(smem.bar_so_ready    [i], 128);
-            mbar_init(smem.bar_sv_done     [i], 1);
+            mbar_init(smem.bar_rope_ready[i], 1);
+            mbar_init(smem.bar_raw_ready [i], 1);
+            mbar_init(smem.bar_qk_done   [i], 1);
+            mbar_init(smem.bar_so_ready  [i], 128);
+            mbar_init(smem.bar_sv_done   [i], 1);
         }
 
         mbar_init(smem.bar_cprss_in,   1);

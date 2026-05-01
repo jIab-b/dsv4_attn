@@ -126,16 +126,16 @@ __device__ __inline__ void nope_prod_warp(
     {
         for (int r = r_start; r < r_end; r += TILE_KV) {
             if (iter >= NUM_BUFS)
-                mbar_wait(smem.bar_raw_free[buf], phase ^ 1);
+                mbar_wait(smem.bar_sv_done[buf], phase ^ 1);
 
             int tx = TILE_KV * D_NOPE
                    + TILE_KV * SCALES_PER_TOKEN;
             mbar_expect(smem.bar_raw_ready[buf], tx);
 
             tma_load_3d(tma_K, ks.batch_idx, r, 0,
-                        &smem.u.kv.raw_latent[buf], smem.bar_raw_ready[buf]);
+                        &smem.u.kv.latent[buf], smem.bar_raw_ready[buf]);
             tma_load_3d(tma_S, ks.batch_idx, r, 0,
-                        &smem.u.kv.scales    [buf], smem.bar_raw_ready[buf]);
+                        &smem.u.kv.scales[buf], smem.bar_raw_ready[buf]);
 
             ++iter;
             buf = (buf + 1) % NUM_BUFS;
@@ -167,7 +167,7 @@ __device__ __inline__ void rope_prod_warp(
             mbar_expect(smem.bar_rope_ready[buf], tx);
 
             tma_load_3d(tma_R, ks.batch_idx, r, 0,
-                        &smem.u.kv.dequant[buf].rope, smem.bar_rope_ready[buf]);
+                        &smem.u.kv.rope[buf], smem.bar_rope_ready[buf]);
 
             ++iter;
             buf = (buf + 1) % NUM_BUFS;
