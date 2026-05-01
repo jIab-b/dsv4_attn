@@ -1,0 +1,148 @@
+B        batch
+N        raw tokens this call (1 for decode, prompt-len for prefill)
+H        Q heads (64)
+d_h      per-head dim
+d_model  hidden size
+r        LoRA rank (1024)
+c_r       compression ratio (128 for HCA, 4 for CSA)
+W        SWA window (128)
+M        compressed length so far — DERIVED from cache, not passed
+
+
+// universal , input token hidden dim states , 
+x = [B, N , d_model] d_model = big num , b = batched toks , n = 1 for decode, num_toks for prefill, chunked toks = 
+ num toks over 128 / compresson ratio
+
+
+struct TensorIO {
+    bf16* X;        // [B, N, d_model]   fwd+bwd (bwd recomputes Q,K,V from X)
+    bf16* out;      // [B, N, d_model]   fwd writes, bwd ignores
+    bf16* dout;     // [B, N, d_model]   BWD ONLY — upstream grad
+    bf16* dx;       // [B, N, d_model]   BWD ONLY — grad to prev layer
+};
+
+
+struct SavedTensors {                    // FWD writes, BWD reads. Inference skips.
+    bf16* O;        // [B, N, H, d_h]    attention output (also used in O-LoRA bwd)
+    fp32* LSE;      // [B, H, N]         logsumexp, σ_h folded into denominator
+};
+
+
+struct weights {
+
+fp8* 
+
+
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+struct TensorIO {
+    bf16* X;        // [B, N, d_model]   fwd+bwd (bwd recomputes Q,K,V from X)
+    bf16* out;      // [B, N, d_model]   fwd writes, bwd ignores
+    bf16* dout;     // [B, N, d_model]   BWD ONLY — upstream grad
+    bf16* dx;       // [B, N, d_model]   BWD ONLY — grad to prev layer
+};
+
+struct SavedTensors {                    // FWD writes, BWD reads. Inference skips.
+    bf16* O;        // [B, N, H, d_h]    attention output (also used in O-LoRA bwd)
+    fp32* LSE;      // [B, H, N]         logsumexp, σ_h folded into denominator
+};
+
+struct Weights {                         // Read-only in fwd AND bwd.
+    // Q path
+    fp8*  Aq;             // [d_model, r]
+    fp8*  Bq;             // [r, H*d_h]
+
+    // Shared single-head KV (the "GQA-with-1-head" trick)
+    fp8*  Wkv;            // [d_model, 2*d_h]
+
+    // Compressor bundle — the only custom learnable group
+    fp8*  Wcomp_kv;       // [d_model, 2*d_h]   inner KV proj
+    fp32* w_score;        // [d_h]              per-token scoring vector
+    fp32* ape;            // [m', d_h]          intra-block positional bias
+    fp32* norm_inner;     // [d_h]              RMSNorm inside compressor
+
+    // Outer attention pre-norms + sink
+    fp32* normQ;          // [d_h]
+    fp32* normKc;         // [d_h]
+    fp32* sink;           // [H]                σ_h, per-head learnable
+
+    // O path (grouped, 8 groups)
+    fp8*  Ao;             // [H*d_h, r]
+    fp8*  Bo;             // [r, d_model]
+
+    WeightScales scales;  // e8m0fnu block scales, one per fp8 weight
+};
+
+struct Gradients {                       // BWD ONLY. All fp32 master.
+    fp32 *dAq, *dBq, *dWkv;
+    fp32 *dWcomp_kv, *dw_score, *dape, *dnorm_inner;
+    fp32 *dnormQ, *dnormKc, *dsink;     // dsink: [H]
+    fp32 *dAo, *dBo;
+};
+
+struct CacheState {                      // DECODE ONLY. Absent in prefill & training.
+    fp8*  Kc;             // [B, M_max, d_h]   compressed K, append-only
+    fp8*  Vc;             // [B, M_max, d_h]   compressed V, append-only
+    bf16* K_swa_ring;     // [B, W, d_h]       last-128 raw K
+    bf16* V_swa_ring;     // [B, W, d_h]
+    bf16* K_partial;      // [B, m', d_h]      in-flight uncompressed block
+    bf16* V_partial;      // [B, m', d_h]
+    int   partial_count;  //                   0..127
+    int   M_cur;          //                   current compressed length
+    int   pos;            //                   global token position
+};
+
+struct Config {                          // Always passed.
+    int  B, N, H, d_h, d_model, r;
+    int  ratio;          // 128 for HCA, 4 for CSA
+    int  window;         // 128
+    struct {
+        fp32 theta;      // 160000 for HCA, 10000 for SWA-only layers
+        fp32 yarn_factor;
+        int  pos_offset;
+    } rope;
+    // mask logic is structural, derived from (q-pos, ratio, window)
+};
+
+
+
+t = 50:
+    compressed cache = empty
+    raw window = tokens 0..49
+    attention = raw window only
+
+t = 128:
+    tokens 0..127 can be compressed -> C0
+    raw window still handles recent tokens
+
+t = 300:
+    compressed cache = C0, C1
+    raw window = tokens 172..299
+    attention = [C0, C1] + [172..299 raw]
+
+hca forward, note , were assuming duplicated attention over some toks in boht raw window + global compressoin cache
+
+
+
+def forward_prefill()
+
+
+def forward_decode()
+
+
+
+def forward_backwards()
