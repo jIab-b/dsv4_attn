@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_SOURCE = HERE / "sm100" / "instantiations" / "m128.cu"
+DEFAULT_SOURCE = HERE / "sm100" / "kernel.cu"
 DEFAULT_BUILD_DIR = HERE / "build" / "compile"
 
 

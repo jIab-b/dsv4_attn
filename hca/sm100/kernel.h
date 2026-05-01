@@ -1,13 +1,10 @@
 #pragma once
 
-#include "params.h"
+#include "../params.h"
 #include <cuda_runtime.h>
 
-namespace dsv4::hca {
+namespace dsv4::hca::sm100 {
 
-template<int M_PRIME>
-void launch_hca_compress_reduce(const HcaCompressReduceParams& p, cudaStream_t stream);
+void launch_hca_decode(const HcaParams& p, cudaStream_t stream);
 
-extern template void launch_hca_compress_reduce<128>(const HcaCompressReduceParams&, cudaStream_t);
-
-}  
+}
