@@ -21,7 +21,7 @@ constexpr int M_PRIME     = 128;
 constexpr int W_SWA       = 128;
 constexpr int QUANT_TILE  = 128;               // e8m0 group size for fp8 cache
 constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 4
-constexpr int NUM_THREADS = 384;               // 3 warpgroups: softmax, mma+producers, dequant
+constexpr int NUM_THREADS = 384;               // 2 warpgroups: softmax, mma+producers (no dequant — fp8 mma direct)
 
 // ============== Mbarrier (storage only; logic in free functions) ==============
 struct Mbarrier {
@@ -166,6 +166,81 @@ void init_state(KernelState& ks, const HcaParams& p) {
     ks.swa_end          = p.swa_len;
     ks.partial_O        = nullptr;
     ks.partial_lse      = nullptr;
+}
+
+
+// ============== tmem column layout ==============
+struct tmem_cols {
+    static constexpr int O      =   0;   // 256 cols  fp32  PV accumulator
+    static constexpr int Q_NOPE = 256;   //  64 cols  fp8   QK A operand (nope)
+    static constexpr int Q_ROPE = 320;   //  16 cols  bf16  QK A operand (rope)
+    static constexpr int P      = 336;   //  32 cols  fp32  QK accumulator
+    static constexpr int S      = 368;   //  16 cols  bf16  PV A operand (ts variant)
+    // 384..512 = 128 cols spare
+};
+
+
+// ============== UTCCP: smem (Q) -> tmem ==============
+// Issues a burst of SM100_UTCCP_128dp256bit_1cta copies that collectively
+// move Q_nope (64 x 512 fp8 in q_sw128) -> tmem[Q_NOPE..Q_NOPE+64)
+// and    Q_rope (64 x  64 bf16 in q_sw64) -> tmem[Q_ROPE..Q_ROPE+16)
+__device__ __forceinline__
+void utccp_q_to_tmem(const Smem& smem) {
+    // TODO: 16 utccp ops over q_sw128 -> tmem cols Q_NOPE..Q_NOPE+64
+    // TODO: 2  utccp ops over q_sw64  -> tmem cols Q_ROPE..Q_ROPE+16
+}
+
+
+// ============== score mma: rope (bf16 ts) ==============
+// Q_rope(tmem) [64,64] · K_rope(smem)[64,64]^T -> P(tmem) [64,64]
+// `init=true` zeroes P before this issue; the rope mma fires first per tile so init=true.
+__device__ __forceinline__
+void tcgen05_mma_qk_rope(const Smem& smem, int buf, bool init = true) {
+    // TODO: tcgen05.mma.cta_group::1.kind::f16  M=64 N=64 K=64
+    //         d  = tmem[P..P+32)
+    //         a  = tmem[Q_ROPE..Q_ROPE+16)
+    //         b  = smem desc for smem.u.kv.dequant[buf].rope (SW64)
+    //         idesc encodes init flag
+}
+
+
+// ============== score mma: nope (fp8 ts, ONE K=128 issue) ==============
+// Q_nope(tmem) [64,128] · K_nope(smem)[64,128]^T -> P(tmem) [64,64]  (accum)
+// Caller iterates k_block ∈ {0,1,2,3} to cover full K=512.
+__device__ __forceinline__
+void tcgen05_mma_qk_nope(const Smem& smem, int buf, int k_block) {
+    // TODO: tcgen05.mma.cta_group::1.kind::f8f6f4  M=64 N=64 K=128
+    //   d  = tmem[P..P+32)
+    //   a  = tmem[Q_NOPE + k_block*16 .. +16)
+    //   b  = smem desc for smem.u.kv.raw_latent[buf] at byte offset k_block*128
+    //   idesc with init=false (rope mma initialized P)
+}
+
+
+// ============== column-wise e8m0 scale fold on P ==============
+// After each fp8 nope mma, fold the per-token e8m0 scale into the fp32 P
+// accumulator (column-wise multiply). 4 scales per token live in
+// smem.u.kv.scales[buf]; this applies the one for `k_block`.
+__device__ __forceinline__
+void apply_p_scale_fold(const Smem& smem, int buf, int k_block) {
+    // TODO: tcgen05.ld P fragments,
+    //       multiply column t of P by cvt_e8m0_to_bf16(smem.scales[buf][t][k_block]),
+    //       tcgen05.st back to P.
+}
+
+
+// ============== value mma: ts variant ==============
+// S(tmem) [64,64] · V(smem)[64,256]      -> O(tmem) [64,256]   for one half of D_V
+// Caller invokes twice with v_smem_off ∈ {0, 256} and o_col_off ∈ {0, 128}.
+__device__ __forceinline__
+void tcgen05_mma_pv_ts(const Smem& smem, int buf,
+                       int v_smem_off, int o_col_off,
+                       bool init = false) {
+    // TODO: tcgen05.mma.cta_group::1.kind::f16  M=64 N=256 K=64
+    //         d  = tmem[O + o_col_off .. + 128)
+    //         a  = tmem[S..S+16)
+    //         b  = smem desc for smem.u.kv.dequant[buf].latent at byte offset v_smem_off*sizeof(bf16)
+    //         idesc encodes init flag (true only on the very first PV of the kernel)
 }
 
 

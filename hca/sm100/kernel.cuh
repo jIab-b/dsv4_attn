@@ -11,9 +11,57 @@ namespace dsv4::hca::sm100 {
 
 // ============== warp role stubs (to be filled in) ==============
 __device__ __inline__ void softmax_warpgroup       (const HcaParams&, Smem&) {}
-__device__ __inline__ void mma_warp                (const HcaParams&, Smem&) {}
 __device__ __inline__ void compress_branch_warp    (const HcaParams&, Smem&) {}
 __device__ __inline__ void dequant_warpgroup       (const HcaParams&, Smem&) {}
+
+
+__device__ __inline__ void mma_warp(
+    const HcaParams& p, const KernelState& ks, Smem& smem
+) {
+    if (!cute::elect_one_sync()) return;
+
+    // ---- one-time: Q smem -> TMEM ----
+    mbar_wait(smem.bar_q_tma, 0);
+    utccp_q_to_tmem(smem);
+    mbar_arrive(smem.bar_q_utccp);
+
+    // optional: wait for in-flight compression slot if it just published
+    if (p.partial_count == 0) {
+        mbar_wait(smem.bar_cprss_done, 0);
+    }
+
+    int buf   = 0;
+    int phase = 0;
+
+    auto run_ring = [&](int r_start, int r_end) {
+        for (int r = r_start; r < r_end; r += TILE_KV) {
+            mbar_wait(smem.bar_rope_ready[buf], phase);
+            mbar_wait(smem.bar_raw_ready [buf], phase);
+
+            tcgen05_mma_qk_rope(smem, buf);                // rope -> P (init)
+            #pragma unroll
+            for (int kb = 0; kb < 4; ++kb) {               // nope: 4× K=128 chunks
+                tcgen05_mma_qk_nope(smem, buf, kb);
+
+            }
+
+            mbar_arrive(smem.bar_qk_done[buf]);
+
+            mbar_wait(smem.bar_so_ready[buf], phase);
+            // ts variant: A = S (tmem), B = V (smem); accumulates into O (tmem)
+            tcgen05_mma_pv_ts(smem, buf, /*v_smem_off=*/  0, /*o_col_off=*/  0);
+            tcgen05_mma_pv_ts(smem, buf, /*v_smem_off=*/256, /*o_col_off=*/128);
+
+            mbar_arrive(smem.bar_sv_done[buf]);
+
+            buf = (buf + 1) % NUM_BUFS;
+            if (buf == 0) phase ^= 1;
+        }
+    };
+
+    run_ring(ks.compressed_start, ks.compressed_end);
+    run_ring(ks.swa_start, ks.swa_end);
+}
 
 
 
@@ -151,10 +199,10 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
         softmax_warpgroup(p, smem);
     } else if (wg == 1) {
         switch (warp_idx) {
-            case 4: mma_warp             (p,     smem); break;
+            case 4: mma_warp             (p, ks, smem); break;
             case 5: nope_prod_warp       (p, ks, smem); break;
             case 6: rope_prod_warp       (p, ks, smem); break;
-            case 7: compress_branch_warp (p,     smem); break;
+            case 7: compress_branch_warp (p, ks, smem); break;
         }
     } else if (wg == 2) {
         dequant_warpgroup(p, smem);
