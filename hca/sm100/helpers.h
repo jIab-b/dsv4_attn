@@ -4,6 +4,14 @@
 #include <cuda_fp8.h>
 #include <cuda.h>
 #include <cstdint>
+#include <type_traits>
+
+#include <cutlass/bfloat16.h>
+#include <cutlass/arch/barrier.h>
+#include <cutlass/float8.h>
+#include <cute/atom/mma_traits_sm100.hpp>
+#include <cute/tensor.hpp>
+#include <deep_gemm/common/sm100_utils.cuh>
 
 #include "../params.h"
 
@@ -24,7 +32,7 @@ __device__ __forceinline__ bool elect_one_sync() {
 
 // ============== compile-time dims ==============
 constexpr int B_H         = 64;
-constexpr int TILE_KV     = 64;
+constexpr int TILE_KV     = 128;
 constexpr int NUM_BUFS    = 2;
 constexpr int D_NOPE      = 512;
 constexpr int D_ROPE      = 64;
@@ -35,14 +43,17 @@ constexpr int W_SWA       = 128;
 constexpr int QUANT_TILE  = 128;               // e8m0 group size for fp8 cache
 constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 4
 constexpr int NUM_THREADS = 256;               // 2 warpgroups: softmax, mma+producers
+constexpr int MMA_MXF8_K  = 32;
+constexpr int SCORE_M     = TILE_KV;           // KV tokens
+constexpr int SCORE_N     = B_H;               // heads
+constexpr int VALUE_M     = 256;               // value dims per value-MMA chunk
+constexpr int VALUE_N     = B_H;               // heads
+constexpr int SCORE_K_BLOCKS = D_NOPE / MMA_MXF8_K;
+constexpr int VALUE_DIM_BLOCKS = D_V / VALUE_M;
+constexpr int VALUE_TOKEN_BLOCKS = TILE_KV / MMA_MXF8_K;
 
 // tcgen05 cta_group used kernel-wide (must be the same for every tcgen05 op)
-#define TCGEN05_CTA_GROUP "::1"
-
-// ============== Mbarrier (storage only; logic in free functions) ==============
-struct Mbarrier {
-    uint64_t raw;
-};
+#define TCGEN05_CTA_GROUP "::2"
 
 __device__ __forceinline__
 uint32_t smem_to_uint(const void* ptr) {
@@ -50,29 +61,29 @@ uint32_t smem_to_uint(const void* ptr) {
 }
 
 __device__ __forceinline__
-void mbar_init(Mbarrier& bar, int count) {
-    uint32_t addr = smem_to_uint(&bar.raw);
+void mbar_init(uint64_t& mbar, int count) {
+    uint32_t addr = smem_to_uint(&mbar);
     asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;"
                  :: "r"(addr), "r"(count));
 }
 
 __device__ __forceinline__
-void mbar_arrive(Mbarrier& bar) {
-    uint32_t addr = smem_to_uint(&bar.raw);
+void mbar_arrive(uint64_t& mbar) {
+    uint32_t addr = smem_to_uint(&mbar);
     asm volatile("mbarrier.arrive.shared::cta.b64 _, [%0];"
                  :: "r"(addr));
 }
 
 __device__ __forceinline__
-void mbar_expect(Mbarrier& bar, int tx_bytes) {
-    uint32_t addr = smem_to_uint(&bar.raw);
+void mbar_expect(uint64_t& mbar, int tx_bytes) {
+    uint32_t addr = smem_to_uint(&mbar);
     asm volatile("mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
                  :: "r"(addr), "r"(tx_bytes));
 }
 
 __device__ __forceinline__
-void mbar_wait(Mbarrier& bar, int phase) {
-    uint32_t addr = smem_to_uint(&bar.raw);
+void mbar_wait(uint64_t& mbar, int phase) {
+    uint32_t addr = smem_to_uint(&mbar);
     int done = 0;
     while (!done) {
         asm volatile(
@@ -101,33 +112,41 @@ struct alignas(16) Smem {
 
         // KV phase: live during mma loop
         struct {
-            __nv_fp8_e4m3 latent[NUM_BUFS][TILE_KV * D_NOPE];               //  64 KB  fp8 nope, K and V both
-            __nv_fp8_e8m0 scales[NUM_BUFS][TILE_KV * SCALES_PER_TOKEN];     // 0.5 KB  e8m0 per-128 scales
-            __nv_bfloat16 rope  [NUM_BUFS][TILE_KV * D_ROPE];               //  16 KB  bf16 rope
+            __nv_fp8_e4m3 latent[NUM_BUFS][TILE_KV * D_NOPE];               // 128 KB fp8 K/V staging
+            __nv_fp8_e8m0 scales[NUM_BUFS][TILE_KV * SCALES_PER_TOKEN];     //   1 KB e8m0 per-128 scales
+            __nv_bfloat16 rope  [NUM_BUFS][TILE_KV * D_ROPE];               //  32 KB bf16 rope
+            __nv_fp8_e4m3 softmax[NUM_BUFS][B_H * TILE_KV];                 //  16 KB fp8 S^T for value MMA
         } kv;
     } u;
 
-    float         p_exchange [4][16 * TILE_KV / 4];   // 4 KB  warp coord
+    float         p_exchange [4][16 * TILE_KV / 4];   // 8 KB  warp coord
     float         rowwise_max[128];                   // 0.5 KB
+    float         rolling_m[B_H];                     // committed softmax max per head row
+    float         rolling_l[B_H];                     // committed softmax sum per head row
+    float         curr_m[B_H];                        // current-tile softmax max per head row
+    float         curr_l[B_H];                        // current-tile softmax sum per head row
     uint32_t      tmem_start_addr;
 
     // mbarriers (inline)
-    Mbarrier bar_q_tma;
-    Mbarrier bar_q_utccp;
-    Mbarrier bar_last_store;
+    uint64_t mbar_q_tma;
+    uint64_t mbar_q_utccp;
+    uint64_t mbar_last_store;
 
-    Mbarrier bar_rope_ready[NUM_BUFS];
-    Mbarrier bar_raw_ready [NUM_BUFS];   // fp8 latent + scales landed
-    Mbarrier bar_qk_done   [NUM_BUFS];
-    Mbarrier bar_so_ready  [NUM_BUFS];
-    Mbarrier bar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
+    uint64_t mbar_rope_ready[NUM_BUFS];
+    uint64_t mbar_raw_ready [NUM_BUFS];   // fp8 latent + scales landed
+    uint64_t mbar_qk_done   [NUM_BUFS];
+    uint64_t mbar_so_ready  [NUM_BUFS];
+    uint64_t mbar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
 
     // compressor branch (only used when partial_count == 127)
-    Mbarrier bar_cprss_in;
-    Mbarrier bar_cprss_done;
+    uint64_t mbar_cprss_in;
+    uint64_t mbar_cprss_done;
+
+    // softmax warpgroup row-half exchange
+    uint64_t mbar_softmax;
 
     // leg merge (compressed → SWA handoff of (m, l, O))
-    Mbarrier bar_leg_merge;
+    uint64_t mbar_leg_merge;
 };
 
 // ============== smem accessor (hides extern __shared__) ==============
@@ -151,14 +170,14 @@ void prefetch_tma_descriptor(const CUtensorMap* desc) {
 
 // TMA 3D load with mbarrier completion (cp.async.bulk.tensor.3d.shared::cluster.global).
 // Issues a single tile load; the producing thread should already have called
-// `mbar_expect` on `bar` with the correct tx-byte count before issuing this.
+// `mbar_expect` on `mbar` with the correct tx-byte count before issuing this.
 template<typename T>
 __device__ __forceinline__
 void tma_load_3d(const CUtensorMap* desc,
                  int crd0, int crd1, int crd2,
-                 T* dst_smem, Mbarrier& bar) {
+                 T* dst_smem, uint64_t& mbar) {
     uint32_t s_addr = smem_to_uint(dst_smem);
-    uint32_t b_addr = smem_to_uint(&bar.raw);
+    uint32_t b_addr = smem_to_uint(&mbar);
     asm volatile(
         "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes "
         "[%0], [%1, {%3, %4, %5}], [%2];"
@@ -166,6 +185,36 @@ void tma_load_3d(const CUtensorMap* desc,
         : "r"(s_addr), "l"(desc), "r"(b_addr),
           "r"(crd0), "r"(crd1), "r"(crd2)
         : "memory");
+}
+
+// ============== quant / cvt helpers ==============
+
+/// Warp-wide max reduction across 32 lanes (xor butterfly).
+__device__ __forceinline__ float warp_reduce_max(float v) {
+    #pragma unroll
+    for (int s = 16; s > 0; s >>= 1)
+        v = fmaxf(v, __shfl_xor_sync(0xffffffff, v, s));
+    return v;
+}
+
+/// fp32 -> ue8m0 byte, round-positive (smallest power of 2 >= x).
+__device__ __forceinline__ uint8_t f32_to_e8m0_rp(float x) {
+    uint16_t pair;
+    asm("cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %1;" : "=h"(pair) : "f"(x));
+    return (uint8_t)(pair & 0xff);
+}
+
+/// ue8m0 byte -> fp32 (= 2^(byte - 127)).
+__device__ __forceinline__ float e8m0_to_f32(uint8_t b) {
+    return __uint_as_float((uint32_t)b << 23);
+}
+
+/// 4x fp32 -> 4x fp8 e4m3, RTNE saturating, packed into one u32.
+__device__ __forceinline__ uint32_t f32x4_to_e4m3x4(const float (&v)[4]) {
+    uint16_t lo, hi;
+    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(lo) : "f"(v[0]), "f"(v[1]));
+    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(hi) : "f"(v[2]), "f"(v[3]));
+    return (uint32_t)lo | ((uint32_t)hi << 16);
 }
 
 // ============== TMEM addressing ==============
@@ -176,55 +225,96 @@ uint32_t tmem_addr(uint32_t base, int col, int lane = 0) {
     return base + (uint32_t(lane) << 16) + uint32_t(col);
 }
 
-// ============== smem matrix descriptor (PTX Table 40) ==============
-// 64-bit descriptor; encode helper: x -> (x & 0x3FFFF) >> 4 (i.e. bits [17:4]).
-//   bits  0-13 : matrix start address (encoded)
-//   bits 16-29 : leading-dim byte offset (encoded)
-//   bits 32-45 : stride-dim byte offset (encoded)
-//   bits 46-48 : const 0b001
-//   bits 49-51 : matrix base offset
-//   bit  52    : leading-dim stride mode (0 = relative offset)
-//   bits 53-60 : reserved 0
-//   bits 61-63 : swizzle mode (0=none, 1=128B/32Batom, 2=128B, 4=64B, 6=32B)
+namespace detail {
+
 __device__ __forceinline__
-uint64_t make_smem_desc(
-    uint32_t smem_addr_u32,
-    uint32_t leading_byte_off,
-    uint32_t stride_byte_off,
-    uint32_t base_offset,
-    uint32_t swizzle_mode
+uint64_t make_kmajor_smem_desc(
+    const void* ptr,
+    uint32_t row_stride_elems,
+    cute::UMMA::LayoutType layout_type = cute::UMMA::LayoutType::SWIZZLE_32B
 ) {
-    auto enc = [](uint32_t x) { return (x & 0x3FFFFu) >> 4; };
-    uint64_t d = 0;
-    d |= uint64_t(enc(smem_addr_u32))    << 0;
-    d |= uint64_t(enc(leading_byte_off)) << 16;
-    d |= uint64_t(enc(stride_byte_off))  << 32;
-    d |= uint64_t(0b001)                 << 46;
-    d |= uint64_t(base_offset & 0x7)     << 49;
-    // bit 52 = 0  (relative offset mode)
-    d |= uint64_t(swizzle_mode & 0x7)    << 61;
-    return d;
+    // K-major mxf8 tiles are K=32 bytes wide; the descriptor stride hops
+    // between 8-row MN atoms in the original row-strided staging buffer.
+    auto* smem_ptr = const_cast<void*>(ptr);
+    const uint32_t stride_byte_offset = 8u * row_stride_elems;
+    return static_cast<uint64_t>(
+        deep_gemm::sm100::make_smem_desc(
+            layout_type, smem_ptr, stride_byte_offset, /*leading_byte_offset=*/0));
 }
 
-// ============== instruction descriptor (PTX Table 42 — kind::f16, kind::f8f6f4, kind::tf32, kind::i8) ==============
-// Dense, no-negate, no-saturate, dtype = F32.
-//   atype/btype encoding for kind::f16     :  F16=0, BF16=1
-//   atype/btype encoding for kind::f8f6f4  :  E4M3=0, E5M2=1, E2M3=3, E3M2=4, E2M1=5
+template<int M, int N,
+         cute::UMMA::Major AMajor = cute::UMMA::Major::K,
+         cute::UMMA::Major BMajor = cute::UMMA::Major::K>
 __device__ __forceinline__
-uint32_t make_idesc(
-    int M, int N,
-    uint32_t atype, uint32_t btype,
-    bool transA, bool transB
+uint64_t make_mxf8_runtime_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return cute::UMMA::make_runtime_instr_desc_block_scaled<
+        cutlass::float_e4m3_t, cutlass::float_e4m3_t,
+        float, cutlass::float_ue8m0_t,
+        M, N, AMajor, BMajor>(scale_a_tmem, scale_b_tmem);
+}
+
+template<int M, int N>
+__device__ __forceinline__
+void tcgen05_mxf8_2sm_ss(
+    uint32_t d_tmem,
+    uint64_t a_desc,
+    uint64_t b_desc,
+    uint32_t scale_a_tmem,
+    uint32_t scale_b_tmem,
+    bool accumulate
 ) {
-    uint32_t d = 0;
-    d |= uint32_t(1)               << 4;            // dtype = F32
-    d |= (atype & 0x7)             << 7;
-    d |= (btype & 0x7)             << 10;
-    d |= uint32_t(transA ? 1 : 0)  << 15;
-    d |= uint32_t(transB ? 1 : 0)  << 16;
-    d |= uint32_t((N >> 3) & 0x3F) << 17;
-    d |= uint32_t((M >> 4) & 0x1F) << 24;
-    return d;
+    const uint64_t idesc =
+        make_mxf8_runtime_idesc<M, N>(scale_a_tmem, scale_b_tmem);
+    deep_gemm::sm100::SM100_MMA_MXF8F6F4_2x1SM_SS::fma(
+        a_desc, b_desc, d_tmem, uint32_t(accumulate), idesc,
+        scale_a_tmem, scale_b_tmem);
+}
+
+}  // namespace detail
+
+// Score: A=K[token, dim], B=Q^T[dim, head], D=P[token, head].
+__device__ __forceinline__
+uint64_t make_score_a_sdesc(const Smem& smem, int buf, int k_block) {
+    const auto* ptr = &smem.u.kv.latent[buf][k_block * MMA_MXF8_K];
+    return detail::make_kmajor_smem_desc(ptr, D_NOPE);
+}
+
+__device__ __forceinline__
+uint64_t make_score_b_sdesc(const Smem& smem, int k_block) {
+    const auto* q_fp8 = reinterpret_cast<const __nv_fp8_e4m3*>(&smem.u.qo.o_buf[0]);
+    return detail::make_kmajor_smem_desc(
+        &q_fp8[k_block * MMA_MXF8_K], D_NOPE);
+}
+
+__device__ __forceinline__
+uint32_t make_score_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return uint32_t(
+        detail::make_mxf8_runtime_idesc<SCORE_M, SCORE_N>(
+            scale_a_tmem, scale_b_tmem) >> 32);
+}
+
+// Value: A=V^T[value_dim, token], B=S[token, head], D=O^T[value_dim, head].
+// `latent` must be staged in V^T order before this descriptor is correct.
+__device__ __forceinline__
+uint64_t make_value_a_sdesc(const Smem& smem, int buf, int dim_block, int token_block) {
+    const int value_dim = dim_block * VALUE_M;
+    const int token     = token_block * MMA_MXF8_K;
+    const auto* ptr = &smem.u.kv.latent[buf][value_dim * TILE_KV + token];
+    return detail::make_kmajor_smem_desc(ptr, TILE_KV);
+}
+
+__device__ __forceinline__
+uint64_t make_value_b_sdesc(const Smem& smem, int buf, int token_block) {
+    const int token = token_block * MMA_MXF8_K;
+    const auto* ptr = &smem.u.kv.softmax[buf][token];
+    return detail::make_kmajor_smem_desc(ptr, TILE_KV);
+}
+
+__device__ __forceinline__
+uint32_t make_value_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return uint32_t(
+        detail::make_mxf8_runtime_idesc<VALUE_M, VALUE_N>(
+            scale_a_tmem, scale_b_tmem) >> 32);
 }
 
 // ============== tcgen05 fence / commit ==============
@@ -234,11 +324,39 @@ __device__ __forceinline__ void tcgen05_fence_before_mma() {
 __device__ __forceinline__ void tcgen05_fence_after_mma() {
     asm volatile("tcgen05.fence::after_thread_sync;" ::: "memory");
 }
-__device__ __forceinline__ void tcgen05_commit(Mbarrier& bar) {
-    uint32_t addr = smem_to_uint(&bar.raw);
+__device__ __forceinline__ void tcgen05_commit(uint64_t& mbar) {
+    uint32_t addr = smem_to_uint(&mbar);
     asm volatile(
         "tcgen05.commit.cta_group" TCGEN05_CTA_GROUP ".mbarrier::arrive::one.b64 [%0];"
         :: "r"(addr));
+}
+
+__device__ __forceinline__ void tcgen05_wait_ld() {
+    asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
+}
+
+__device__ __forceinline__
+void tcgen05_ld_32x32b_x32(uint32_t taddr, float (&out)[32]) {
+    uint32_t r[32];
+    asm volatile(
+        "tcgen05.ld.sync.aligned.32x32b.x32.b32 "
+        "{%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,"
+        " %16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31}, [%32];"
+        : "=r"(r[0]),  "=r"(r[1]),  "=r"(r[2]),  "=r"(r[3]),
+          "=r"(r[4]),  "=r"(r[5]),  "=r"(r[6]),  "=r"(r[7]),
+          "=r"(r[8]),  "=r"(r[9]),  "=r"(r[10]), "=r"(r[11]),
+          "=r"(r[12]), "=r"(r[13]), "=r"(r[14]), "=r"(r[15]),
+          "=r"(r[16]), "=r"(r[17]), "=r"(r[18]), "=r"(r[19]),
+          "=r"(r[20]), "=r"(r[21]), "=r"(r[22]), "=r"(r[23]),
+          "=r"(r[24]), "=r"(r[25]), "=r"(r[26]), "=r"(r[27]),
+          "=r"(r[28]), "=r"(r[29]), "=r"(r[30]), "=r"(r[31])
+        : "r"(taddr)
+    );
+    tcgen05_wait_ld();
+    #pragma unroll
+    for (int i = 0; i < 32; ++i) {
+        out[i] = __uint_as_float(r[i]);
+    }
 }
 
 // ============== one-time setup ==============
@@ -263,6 +381,9 @@ struct KernelState {
     int head_half_idx;       // 0 or 1 (H=128 → 2× B_H=64)
     int partition_idx;       // split-K index along compressed leg
 
+    int warp_id;             // = threadIdx.x / 32   (global, 0..7)
+    int lane;                // = threadIdx.x & 31
+
     int compressed_start;    // K-token range owned by this CTA
     int compressed_end;
     int swa_start;
@@ -274,339 +395,111 @@ struct KernelState {
 
 
 __device__ __forceinline__
-void query_tma(const HcaParams& p, const KernelState& ks, Smem& smem) {
-    if (!elect_one_sync()) return;
-
-    int q_tx = B_H * D_NOPE * sizeof(__nv_bfloat16)
-             + B_H * D_ROPE * sizeof(__nv_bfloat16);
-    mbar_expect(smem.bar_q_tma, q_tx);
-
-    tma_load_3d(&p.tma_Q_sw128, ks.batch_idx, ks.head_half_idx, 0,
-                smem.u.qo.q_sw128, smem.bar_q_tma);
-    tma_load_3d(&p.tma_Q_sw64,  ks.batch_idx, ks.head_half_idx, 0,
-                smem.u.qo.q_sw64,  smem.bar_q_tma);
-}
-
-
-__device__ __forceinline__
 void init_state(KernelState& ks, const HcaParams& p) {
     ks.batch_idx        = blockIdx.y;
     ks.head_half_idx    = blockIdx.z;
     ks.partition_idx    = blockIdx.x;
+    ks.warp_id          = threadIdx.x / 32;
+    ks.lane             = threadIdx.x & 31;
     ks.compressed_start = 0;            // TODO: derive from host scheduler
     ks.compressed_end   = p.M_cur;
     ks.swa_start        = 0;
     ks.swa_end          = p.swa_len;
-    ks.partial_O        = nullptr;
-    ks.partial_lse      = nullptr;
+    ks.partial_O        = p.partial_O == nullptr ? nullptr :
+        p.partial_O
+        + int64_t(ks.partition_idx) * p.stride_partial_O_split
+        + int64_t(ks.batch_idx)     * p.stride_partial_O_b
+        + int64_t(ks.head_half_idx) * B_H * p.stride_partial_O_h;
+    ks.partial_lse      = p.partial_lse == nullptr ? nullptr :
+        p.partial_lse
+        + int64_t(ks.partition_idx) * p.stride_partial_lse_split
+        + int64_t(ks.batch_idx)     * p.stride_partial_lse_b
+        + int64_t(ks.head_half_idx) * B_H;
 }
 
 
 // ============== tmem column layout ==============
 struct tmem_cols {
-    static constexpr int O      =   0;   // 256 cols  fp32  PV accumulator
-    static constexpr int Q_NOPE = 256;   //  64 cols  fp8   QK A operand (nope)
-    static constexpr int Q_ROPE = 320;   //  16 cols  bf16  QK A operand (rope)
-    static constexpr int P      = 336;   //  32 cols  fp32  QK accumulator
-    static constexpr int S      = 368;   //  16 cols  bf16  PV A operand (ts variant)
-    // 384..512 = 128 cols spare
+    static constexpr int O              =   0;   // 2 x 64-col fp32 value accum chunks
+    static constexpr int P              = 128;   // 64-col fp32 score tile: [128 kv, 64 head]
+    static constexpr int SCORE_SCALE_A  = 192;   // e8m0 K scales in TMEM sub-columns
+    static constexpr int SCORE_SCALE_B  = 208;   // e8m0 Q scales in TMEM sub-columns
+    static constexpr int VALUE_SCALE_A  = 224;   // e8m0 V scales; see value-scale caveat
+    static constexpr int VALUE_SCALE_B  = 240;   // e8m0 S scales
 };
 
-
-// ============== UTCCP: smem (Q) -> tmem ==============
-// Uses tcgen05.cp.cta_group::1.<shape>; the CTA's elected thread issues all copies.
-//
-// REVIEW: the PTX shape `.128x128b` covers 128 lanes × 128 bits per copy. With M=64
-// the canonical SM100 path is `.64x128b.warpx2::02_13` which requires the issuing
-// pair of warps to multicast; we use `.128x128b` here under the assumption that the
-// downstream mma is M=64-half of an M=128 footprint and that lanes 64..127 are
-// consumed by the peer half (or mirrored). If you stick with single-CTA M=64, switch
-// to `.64x128b.warpx2::02_13` and have warps 0/2 (or 1/3) co-issue.
-//
-// REVIEW: dtype. The tmem_cols comments label Q_NOPE as fp8 but q_sw128 is bf16. We
-// preserve the smem layout and copy the bf16 bytes; whoever consumes Q_NOPE through
-// kind::f8f6f4 mma must either reinterpret-cast or run a quant pass. If QK is meant
-// to run as kind::f16, the fp8 label on Q_NOPE is wrong — relabel it as 256 cols bf16
-// and update the K-block stride below from 16 to 32 cols.
 __device__ __forceinline__
-void utccp_q_to_tmem(const Smem& smem) {
-    if (!elect_one_sync()) return;
-
-    const uint32_t base = smem.tmem_start_addr;
-
-    // Q nope: 64 rows × 512 bf16 in 128B-swizzle smem -> tmem cols [Q_NOPE, Q_NOPE+64).
-    // Each .128x128b copy moves 128 lanes × 128b = 16B per lane = 8 bf16 per lane,
-    // and lands in 4 tmem cols. 64 cols / 4 = 16 ops.
-    {
-        uint32_t s_addr = smem_to_uint(&smem.u.qo.q_sw128[0]);
-        // 128B swizzle, K-major bf16: stride from 8 rows to next 8 rows = 8 * 512 * 2 = 8192 B.
-        // Leading-dim offset is unused under swizzled layouts (encoded as 0).
-        uint64_t desc = make_smem_desc(s_addr,
-                                       /*leading_byte_off=*/ 0,
-                                       /*stride_byte_off =*/ 8 * D_NOPE * sizeof(__nv_bfloat16),
-                                       /*base_offset     =*/ 0,
-                                       /*swizzle_mode    =*/ 2 /*128B*/);
-        #pragma unroll
-        for (int i = 0; i < 16; ++i) {
-            uint32_t taddr  = tmem_addr(base, tmem_cols::Q_NOPE + i * 4);
-            uint64_t d_step = desc + (uint64_t((i * 16 * D_NOPE * sizeof(__nv_bfloat16)) & 0x3FFFFu) >> 4);
-            asm volatile(
-                "tcgen05.cp.cta_group" TCGEN05_CTA_GROUP ".128x128b [%0], %1;"
-                :: "r"(taddr), "l"(d_step));
-        }
-    }
-
-    // Q rope: 64 rows × 64 bf16 in 64B-swizzle smem -> tmem cols [Q_ROPE, Q_ROPE+16).
-    // .128x128b: 16 cols / 4 = 4 ops.
-    {
-        uint32_t s_addr = smem_to_uint(&smem.u.qo.q_sw64[0]);
-        uint64_t desc = make_smem_desc(s_addr,
-                                       /*leading_byte_off=*/ 0,
-                                       /*stride_byte_off =*/ 8 * D_ROPE * sizeof(__nv_bfloat16),
-                                       /*base_offset     =*/ 0,
-                                       /*swizzle_mode    =*/ 4 /*64B*/);
-        #pragma unroll
-        for (int i = 0; i < 4; ++i) {
-            uint32_t taddr  = tmem_addr(base, tmem_cols::Q_ROPE + i * 4);
-            uint64_t d_step = desc + (uint64_t((i * 16 * D_ROPE * sizeof(__nv_bfloat16)) & 0x3FFFFu) >> 4);
-            asm volatile(
-                "tcgen05.cp.cta_group" TCGEN05_CTA_GROUP ".128x128b [%0], %1;"
-                :: "r"(taddr), "l"(d_step));
-        }
-    }
-
-    tcgen05_fence_after_mma();   // make tmem writes visible to subsequent mma issues
+uint32_t score_scale_a_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_A);
 }
 
-
-// ============== score mma: rope (bf16) ==============
-// Q_rope(tmem) [64,64] · K_rope(smem)[64,64]^T -> P(tmem) [64,64]
-// init=true zeroes P before this issue (rope mma fires first per tile).
 __device__ __forceinline__
-void tcgen05_mma_qk_rope(const Smem& smem, int buf, bool init = true) {
-    const uint32_t base = smem.tmem_start_addr;
-    const uint32_t d_addr = tmem_addr(base, tmem_cols::P);
-    const uint32_t a_addr = tmem_addr(base, tmem_cols::Q_ROPE);
+uint32_t score_scale_b_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_B);
+}
 
-    // K rope smem: bf16 [TILE_KV, D_ROPE] = [64, 64], 64B swizzle, K-major.
-    uint32_t b_smem = smem_to_uint(&smem.u.kv.rope[buf][0]);
-    uint64_t b_desc = make_smem_desc(b_smem,
-                                     /*leading_byte_off=*/ 0,
-                                     /*stride_byte_off =*/ 8 * D_ROPE * sizeof(__nv_bfloat16),
-                                     /*base_offset     =*/ 0,
-                                     /*swizzle_mode    =*/ 4 /*64B*/);
+__device__ __forceinline__
+uint32_t value_scale_a_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_A);
+}
 
-    uint32_t idesc = make_idesc(/*M=*/64, /*N=*/64,
-                                /*atype=BF16*/ 1, /*btype=BF16*/ 1,
-                                /*transA=*/ false, /*transB=*/ false);
+__device__ __forceinline__
+uint32_t value_scale_b_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_B);
+}
 
-    int enable_input_d = init ? 0 : 1;   // when init=true, compute D = A*B (no add)
+// A thin 2SM mxf8 score issue. The caller must have staged K/Q scale factors
+// into SCORE_SCALE_A/B before issuing this K=32 block.
+__device__ __forceinline__
+void score_mma(const Smem& smem, int buf, int k_block, bool accumulate) {
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
+    const uint64_t a_desc = make_score_a_sdesc(smem, buf, k_block);
+    const uint64_t b_desc = make_score_b_sdesc(smem, k_block);
 
     tcgen05_fence_before_mma();
-    asm volatile(
-        "{\n"
-        ".reg .pred P;\n"
-        "setp.ne.s32 P, %4, 0;\n"
-        "tcgen05.mma.cta_group" TCGEN05_CTA_GROUP ".kind::f16 "
-            "[%0], [%1], %2, %3, P;\n"
-        "}\n"
-        :: "r"(d_addr), "r"(a_addr), "l"(b_desc), "r"(idesc), "r"(enable_input_d)
-    );
+    detail::tcgen05_mxf8_2sm_ss<SCORE_M, SCORE_N>(
+        d_tmem, a_desc, b_desc,
+        score_scale_a_tmem(smem), score_scale_b_tmem(smem),
+        accumulate);
 }
 
-
-// ============== score mma: nope (fp8 f8f6f4, ONE K=128 issue) ==============
-// Q_nope(tmem) [64,128] · K_nope(smem)[64,128]^T -> P(tmem) [64,64]  (accumulate)
-// k_block ∈ {0,1,2,3} covers full K=512 in 4× K=128 chunks.
-//
-// REVIEW: tmem A column stride per K-block is 16 here (matches the existing call
-// site `Q_NOPE + k_block*16`). With kind::f8f6f4 K=128 fp8, A in tmem occupies
-// K_bits/32 = 32 cols typically; the stride-16 layout assumes K=64 fp8 packed via
-// `.pack::16b` semantics or a custom column packing. Verify against the layout
-// table for M=64 non-WS once you settle on the Q quant path.
+// Value uses the same SS form. This assumes V is transposed/staged as
+// [value_dim, token] and softmax is staged as S^T [head, token].
 __device__ __forceinline__
-void tcgen05_mma_qk_nope(const Smem& smem, int buf, int k_block) {
-    const uint32_t base = smem.tmem_start_addr;
-    const uint32_t d_addr = tmem_addr(base, tmem_cols::P);
-    const uint32_t a_addr = tmem_addr(base, tmem_cols::Q_NOPE + k_block * 16);
-
-    // K nope smem: fp8 [TILE_KV, D_NOPE], 128B swizzle, K-major.
-    // Byte offset for this K-block of 128 fp8 (= 128 B per row).
-    const int b_offset = k_block * 128;
-    uint32_t b_smem = smem_to_uint(
-        reinterpret_cast<const char*>(&smem.u.kv.latent[buf][0]) + b_offset);
-    uint64_t b_desc = make_smem_desc(b_smem,
-                                     /*leading_byte_off=*/ 0,
-                                     /*stride_byte_off =*/ 8 * D_NOPE * sizeof(__nv_fp8_e4m3),
-                                     /*base_offset     =*/ 0,
-                                     /*swizzle_mode    =*/ 2 /*128B*/);
-
-    // atype = btype = E4M3 (= 0)
-    uint32_t idesc = make_idesc(/*M=*/64, /*N=*/64,
-                                /*atype=E4M3*/ 0, /*btype=E4M3*/ 0,
-                                /*transA=*/ false, /*transB=*/ false);
-
-    // Always accumulate into P (rope already initialized it).
-    tcgen05_fence_before_mma();
-    asm volatile(
-        "{\n"
-        ".reg .pred P;\n"
-        "setp.ne.s32 P, %4, 0;\n"
-        "tcgen05.mma.cta_group" TCGEN05_CTA_GROUP ".kind::f8f6f4 "
-            "[%0], [%1], %2, %3, P;\n"
-        "}\n"
-        :: "r"(d_addr), "r"(a_addr), "l"(b_desc), "r"(idesc), "r"(/*enable_input_d=*/1)
-    );
-}
-
-
-// ============== column-wise e8m0 scale fold on P ==============
-// After each fp8 nope mma, fold the per-token e8m0 scale into the fp32 P
-// accumulator (column-wise multiply). 4 scales per token live in
-// smem.u.kv.scales[buf]; this applies the one for `k_block`.
-//
-// Shape: P is [M=64, N=TILE_KV=64] fp32 in tmem at col `tmem_cols::P` (32 cols).
-// Each warp issues a tcgen05.ld.32x32b spanning 32 lanes × 32b per col. We use
-// .x32 to read all 32 tmem cols of P in 32 b32 regs, multiply lane-broadcast
-// e8m0 → fp32 scales, and store back.
-//
-// REVIEW: this version assumes the elected warp owns all 64 lanes of P in two
-// .32x32b passes. For the correct collective layout you may need 4 warps
-// cooperating across lane groups — verify when you fill in softmax.
-__device__ __forceinline__
-void apply_p_scale_fold(const Smem& smem, int buf, int k_block) {
-    // Warp-collective reads/writes; require warp-uniform `taddr`.
-    const uint32_t base = smem.tmem_start_addr;
-    const uint32_t lane = threadIdx.x & 31;
-
-    // Per-token e8m0 scale: scales[buf][token * SCALES_PER_TOKEN + k_block].
-    // e8m0 → fp32: byte is the unsigned biased exponent; mantissa = 1.0.
-
-    // Two .32x32b passes covering 64 lanes × 32 cols of P.
-    // Pass 0: lanes [0,32),  Pass 1: lanes [32,64).
-    #pragma unroll
-    for (int pass = 0; pass < 2; ++pass) {
-        uint32_t taddr = tmem_addr(base, tmem_cols::P, /*lane=*/pass * 32);
-        // Load 32 cols (.x32) of fp32 from P fragment.
-        uint32_t r[32];
-        asm volatile(
-            "tcgen05.ld.sync.aligned.32x32b.x32.b32 "
-            "{%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,"
-            " %16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31}, [%32];"
-            : "=r"(r[0]),  "=r"(r[1]),  "=r"(r[2]),  "=r"(r[3]),
-              "=r"(r[4]),  "=r"(r[5]),  "=r"(r[6]),  "=r"(r[7]),
-              "=r"(r[8]),  "=r"(r[9]),  "=r"(r[10]), "=r"(r[11]),
-              "=r"(r[12]), "=r"(r[13]), "=r"(r[14]), "=r"(r[15]),
-              "=r"(r[16]), "=r"(r[17]), "=r"(r[18]), "=r"(r[19]),
-              "=r"(r[20]), "=r"(r[21]), "=r"(r[22]), "=r"(r[23]),
-              "=r"(r[24]), "=r"(r[25]), "=r"(r[26]), "=r"(r[27]),
-              "=r"(r[28]), "=r"(r[29]), "=r"(r[30]), "=r"(r[31])
-            : "r"(taddr)
-        );
-
-        // Each tcgen05.ld.32x32b lane holds 1 fp32 per col across 32 cols.
-        // The N-column index for this lane is `pass*32 + (col_in_frag)` — but the
-        // per-token scale we computed is for token = lane*2+j. Both indexings need
-        // to agree; if the fp32 P fragment is laid out as col=token then `r[i]` for
-        // this lane corresponds to a single token across i. In that case scale by
-        // a per-i scalar, not per-j. The simpler safe version: rebroadcast scales
-        // across registers using the e8m0 byte that matches the column.
-        // REVIEW: reconfirm P fragment col-↔-token mapping for M=64 layout F.
-
-        #pragma unroll
-        for (int i = 0; i < 32; ++i) {
-            int token = pass * 32 + i;   // assumed col-i = token-(pass*32+i)
-            __nv_fp8_e8m0 s8 = smem.u.kv.scales[buf][token * SCALES_PER_TOKEN + k_block];
-            uint32_t bits = uint32_t(reinterpret_cast<const uint8_t&>(s8)) << 23;
-            float s = __int_as_float(int(bits));
-            float v = __int_as_float(int(r[i]));
-            r[i] = uint32_t(__float_as_int(v * s));
-        }
-
-        asm volatile(
-            "tcgen05.st.sync.aligned.32x32b.x32.b32 [%32], "
-            "{%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,"
-            " %16,%17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31};"
-            :: "r"(r[0]),  "r"(r[1]),  "r"(r[2]),  "r"(r[3]),
-               "r"(r[4]),  "r"(r[5]),  "r"(r[6]),  "r"(r[7]),
-               "r"(r[8]),  "r"(r[9]),  "r"(r[10]), "r"(r[11]),
-               "r"(r[12]), "r"(r[13]), "r"(r[14]), "r"(r[15]),
-               "r"(r[16]), "r"(r[17]), "r"(r[18]), "r"(r[19]),
-               "r"(r[20]), "r"(r[21]), "r"(r[22]), "r"(r[23]),
-               "r"(r[24]), "r"(r[25]), "r"(r[26]), "r"(r[27]),
-               "r"(r[28]), "r"(r[29]), "r"(r[30]), "r"(r[31]),
-               "r"(taddr)
-        );
-    }
-
-    (void)lane;
-}
-
-
-// ============== value mma: ts variant ==============
-// S(tmem) [64,64] · V(smem)[64,256] -> O(tmem) [64,256]  for one half of D_V.
-// Caller invokes twice with v_smem_off ∈ {0, 256} (in elements) and o_col_off ∈ {0, 128}.
-//
-// REVIEW: V is fp8 in cache (smem.u.kv.latent); kind::f16 needs bf16 B. Either run
-// kind::f8f6f4 here too (with S also fp8-quantized in tmem) or stage V to bf16 first.
-__device__ __forceinline__
-void tcgen05_mma_pv_ts(const Smem& smem, int buf,
-                       int v_smem_off, int o_col_off,
-                       bool init = false) {
-    const uint32_t base = smem.tmem_start_addr;
-    const uint32_t d_addr = tmem_addr(base, tmem_cols::O + o_col_off);
-    const uint32_t a_addr = tmem_addr(base, tmem_cols::S);
-
-    // V smem: same buffer as K nope; treat as [TILE_KV, D_V] starting at v_smem_off.
-    // For PV with V used as KxN (K=TILE_KV, N=256), V is K-major in the same physical
-    // layout as K, just consumed differently. The smem desc encodes V at the offset.
-    uint32_t v_smem = smem_to_uint(
-        reinterpret_cast<const char*>(&smem.u.kv.latent[buf][0])
-        + v_smem_off * sizeof(__nv_fp8_e4m3));
-    uint64_t b_desc = make_smem_desc(v_smem,
-                                     /*leading_byte_off=*/ 0,
-                                     /*stride_byte_off =*/ 8 * D_NOPE * sizeof(__nv_fp8_e4m3),
-                                     /*base_offset     =*/ 0,
-                                     /*swizzle_mode    =*/ 2 /*128B*/);
-
-    uint32_t idesc = make_idesc(/*M=*/64, /*N=*/256,
-                                /*atype=BF16*/ 1, /*btype=BF16*/ 1,
-                                /*transA=*/ false, /*transB=*/ false);
-
-    int enable_input_d = init ? 0 : 1;
+void value_mma(const Smem& smem, int buf, int dim_block, int token_block, bool accumulate) {
+    const uint32_t d_tmem = tmem_addr(
+        smem.tmem_start_addr, tmem_cols::O + dim_block * VALUE_N);
+    const uint64_t a_desc = make_value_a_sdesc(smem, buf, dim_block, token_block);
+    const uint64_t b_desc = make_value_b_sdesc(smem, buf, token_block);
 
     tcgen05_fence_before_mma();
-    asm volatile(
-        "{\n"
-        ".reg .pred P;\n"
-        "setp.ne.s32 P, %4, 0;\n"
-        "tcgen05.mma.cta_group" TCGEN05_CTA_GROUP ".kind::f16 "
-            "[%0], [%1], %2, %3, P;\n"
-        "}\n"
-        :: "r"(d_addr), "r"(a_addr), "l"(b_desc), "r"(idesc), "r"(enable_input_d)
-    );
+    detail::tcgen05_mxf8_2sm_ss<VALUE_M, VALUE_N>(
+        d_tmem, a_desc, b_desc,
+        value_scale_a_tmem(smem), value_scale_b_tmem(smem),
+        accumulate);
 }
 
 
 __device__ __forceinline__
 void init_smem(Smem& smem) {
     if (threadIdx.x == 0) {
-        mbar_init(smem.bar_q_tma,      1);
-        mbar_init(smem.bar_q_utccp,    1);
-        mbar_init(smem.bar_last_store, 128);
+        mbar_init(smem.mbar_q_tma,      1);
+        mbar_init(smem.mbar_q_utccp,    1);
+        mbar_init(smem.mbar_last_store, 128);
 
         #pragma unroll
         for (int i = 0; i < NUM_BUFS; ++i) {
-            mbar_init(smem.bar_rope_ready[i], 1);
-            mbar_init(smem.bar_raw_ready [i], 1);
-            mbar_init(smem.bar_qk_done   [i], 1);
-            mbar_init(smem.bar_so_ready  [i], 128);
-            mbar_init(smem.bar_sv_done   [i], 1);
+            mbar_init(smem.mbar_rope_ready[i], 1);
+            mbar_init(smem.mbar_raw_ready [i], 1);
+            mbar_init(smem.mbar_qk_done   [i], 1);
+            mbar_init(smem.mbar_so_ready  [i], 128);
+            mbar_init(smem.mbar_sv_done   [i], 1);
         }
 
-        mbar_init(smem.bar_cprss_in,   1);
-        mbar_init(smem.bar_cprss_done, 1);
-        mbar_init(smem.bar_leg_merge,  128);
+        mbar_init(smem.mbar_cprss_in,   1);
+        mbar_init(smem.mbar_cprss_done, 1);
+        mbar_init(smem.mbar_softmax,    128);
+        mbar_init(smem.mbar_leg_merge,  128);
     }
     __syncthreads();
 }

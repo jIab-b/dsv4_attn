@@ -1,3 +1,7 @@
 FlashMLA/
-bench/
+bench/.venv/
 ptx_mcp/
+__pycache__/
+*.pyc
+*.o
+*.so

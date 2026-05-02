@@ -37,6 +37,8 @@ struct HcaParams {
     // ---- Q / O for one decode step ----
     __nv_bfloat16* __restrict__ Q;              // [B, 1, H=128, 576]
     __nv_bfloat16* __restrict__ O;              // [B, 1, H=128, 512]
+    float* __restrict__ partial_O;              // [split, B, H, 512] split-K output
+    float* __restrict__ partial_lse;            // [split, B, H]      split-K log2 LSE
 
     // ---- strides ----
     int64_t stride_C_b, stride_C_n;
@@ -48,6 +50,8 @@ struct HcaParams {
     int64_t stride_Kswa_rope_b, stride_Kswa_rope_n;
     int64_t stride_Q_b;
     int64_t stride_O_b;
+    int64_t stride_partial_O_split, stride_partial_O_b, stride_partial_O_h;
+    int64_t stride_partial_lse_split, stride_partial_lse_b;
 
     // legacy (standalone reduce)
     __nv_bfloat16* __restrict__ out;
