@@ -7,7 +7,10 @@
 
 namespace dsv4::hca::sm100 {
 
-// ============== softmax/value epilogue warpgroup ==============
+///*****************************************************************************
+///*** softmax / value epilogue
+///*****************************************************************************
+
 struct SoftmaxPipelineState {
     int buf = 0;
     int phase = 0;
@@ -235,8 +238,15 @@ __device__ __inline__ void softmax_warpgroup(
     run_score_tiles(ks.swa_start,        ks.swa_end);
     value_epilogue_final(p, ks, smem, pipe);
 }
-__device__ __inline__ void compress_branch_warp    (const HcaParams&, const KernelState&, Smem&) {}
 
+///*****************************************************************************
+///*** end softmax / value epilogue
+///*****************************************************************************
+
+
+///*****************************************************************************
+///*** tma producers: q / nope / rope
+///*****************************************************************************
 
 /// Loads Q from gmem and quantizes Q-nope to fp8 e4m3 + per-128 e8m0 scales.
 /// On exit:
@@ -260,7 +270,7 @@ __device__ __inline__ void compress_branch_warp    (const HcaParams&, const Kern
 __device__ __inline__
 void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
     // 1) TMA: bf16 Q-nope (SW128), bf16 Q-rope (SW64).
-    if (ks.warp_id == 0 && ks.lane == 0) {
+    if (ks.warp_idx == 0 && ks.lane == 0) {
         mbar_expect(smem.mbar_q_tma, B_H * (D_NOPE + D_ROPE) * sizeof(__nv_bfloat16));
         tma_load_3d(&p.tma_Q_sw128, ks.batch_idx, ks.head_half_idx, 0,
                     smem.u.qo.q_sw128, smem.mbar_q_tma);
@@ -276,7 +286,7 @@ void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
 
     constexpr int REPLIC = QUANT_TILE / 32;                     // 4
     constexpr int SPR    = (D_NOPE / QUANT_TILE) * REPLIC;      // 16
-    const int kb = ks.warp_id;
+    const int kb = ks.warp_idx;
 
     #pragma unroll 4
     for (int row = 0; row < B_H; ++row) {
@@ -308,20 +318,154 @@ void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
     }
 }
 
-
-__device__ __inline__ void mma_warp(
+__device__ __inline__ void nope_prod_warp(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
     if (!elect_one_sync()) return;
 
+    int buf   = 0;
+    int phase = 0;
+    int iter  = 0;
+
+    auto run_ring = [&](const CUtensorMap* tma_K,
+                        const CUtensorMap* tma_S,
+                        int r_start, int r_end)
+    {
+        for (int r = r_start; r < r_end; r += TILE_KV) {
+            if (iter >= NUM_BUFS)
+                mbar_wait(smem.mbar_sv_done[buf], phase ^ 1);
+
+            int tx = TILE_KV * D_NOPE
+                   + TILE_KV * SCALES_PER_TOKEN;
+            mbar_expect(smem.mbar_raw_ready[buf], tx);
+
+            tma_load_3d(tma_K, ks.batch_idx, r, 0,
+                        &smem.u.kv.latent[buf], smem.mbar_raw_ready[buf]);
+            tma_load_3d(tma_S, ks.batch_idx, r, 0,
+                        &smem.u.kv.scales[buf], smem.mbar_raw_ready[buf]);
+
+            ++iter;
+            buf = (buf + 1) % NUM_BUFS;
+            if (buf == 0) phase ^= 1;
+        }
+    };
+    run_ring(&p.tma_Kc,   &p.tma_Kc_scales,   ks.compressed_start, ks.compressed_end);
+    run_ring(&p.tma_Kswa, &p.tma_Kswa_scales, ks.swa_start,        ks.swa_end);
+}
+
+__device__ __inline__ void rope_prod_warp(
+    const HcaParams& p, const KernelState& ks, Smem& smem
+) {
+    if (!elect_one_sync()) return;
+
+    int buf   = 0;
+    int phase = 0;
+    int iter  = 0;
+
+    auto run_ring = [&](const CUtensorMap* tma_R,
+                        int r_start, int r_end)
+    {
+        for (int r = r_start; r < r_end; r += TILE_KV) {
+            if (iter >= NUM_BUFS)
+                mbar_wait(smem.mbar_qk_done[buf], phase ^ 1);
+
+            int tx = TILE_KV * D_ROPE * sizeof(__nv_bfloat16);
+            mbar_expect(smem.mbar_rope_ready[buf], tx);
+
+            tma_load_3d(tma_R, ks.batch_idx, r, 0,
+                        &smem.u.kv.rope[buf], smem.mbar_rope_ready[buf]);
+
+            ++iter;
+            buf = (buf + 1) % NUM_BUFS;
+            if (buf == 0) phase ^= 1;
+        }
+    };
+
+    run_ring(&p.tma_Kc_rope,   ks.compressed_start, ks.compressed_end);
+    run_ring(&p.tma_Kswa_rope, ks.swa_start,        ks.swa_end);
+}
+
+///*****************************************************************************
+///*** end tma producers: q / nope / rope
+///*****************************************************************************
+
+
+///*****************************************************************************
+///*** mma issue loop
+///*****************************************************************************
+
+__device__ __forceinline__
+void advance_issue_ring(int& buf, int& phase) {
+    buf = (buf + 1) % NUM_BUFS;
+    if (buf == 0) phase ^= 1;
+}
+
+__device__ __forceinline__
+void stage_score_scales(Smem&, int, int) {
+    // TODO: stage K/Q e8m0 scale columns to SCORE_SCALE_A/B for this K=32 block.
+}
+
+__device__ __forceinline__
+void stage_value_scales(Smem&, int, int, int) {
+    // TODO: stage V/S e8m0 scale columns to VALUE_SCALE_A/B.
+}
+
+__device__ __forceinline__
+void issue_score_tile(Smem& smem, int buf) {
+    #pragma unroll
+    for (int kb = 0; kb < SCORE_K_BLOCKS; ++kb) {
+        stage_score_scales(smem, buf, kb);
+        score_mma(smem, buf, kb, /*accumulate=*/kb != 0);
+    }
+}
+
+__device__ __forceinline__
+void issue_value_tile(
+    Smem& smem,
+    int buf,
+    bool (&value_started)[VALUE_DIM_BLOCKS]
+) {
+    #pragma unroll
+    for (int dim = 0; dim < VALUE_DIM_BLOCKS; ++dim) {
+        #pragma unroll
+        for (int tk = 0; tk < VALUE_TOKEN_BLOCKS; ++tk) {
+            stage_value_scales(smem, buf, dim, tk);
+            value_mma(
+                smem, buf, dim, tk,
+                /*accumulate=*/value_started[dim] || tk != 0);
+        }
+        value_started[dim] = true;
+    }
+}
+
+__device__ __inline__ void score_issue_thread(
+    const HcaParams&, const KernelState& ks, Smem& smem
+) {
     mbar_wait(smem.mbar_q_tma, 0);
     mbar_arrive(smem.mbar_q_utccp);
 
-    // optional: wait for in-flight compression slot if it just published
-    if (p.partial_count == 0) {
-        mbar_wait(smem.mbar_cprss_done, 0);
-    }
+    int buf   = 0;
+    int phase = 0;
 
+    auto run_ring = [&](int r_start, int r_end) {
+        for (int r = r_start; r < r_end; r += TILE_KV) {
+            mbar_wait(smem.mbar_raw_ready[buf], phase);
+            tcgen05_fence_after_mma();
+
+            issue_score_tile(smem, buf);
+            tcgen05_commit(smem.mbar_qk_done[buf]);
+
+            advance_issue_ring(buf, phase);
+        }
+    };
+
+    run_ring(ks.compressed_start, ks.compressed_end);
+    run_ring(ks.swa_start,        ks.swa_end);
+}
+
+__device__ __inline__ void value_issue_thread(
+    const HcaParams&, const KernelState& ks, Smem& smem
+) {
     int buf   = 0;
     int phase = 0;
 
@@ -329,31 +473,14 @@ __device__ __inline__ void mma_warp(
 
     auto run_ring = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
-            mbar_wait(smem.mbar_raw_ready [buf], phase);
-
-            #pragma unroll
-            for (int kb = 0; kb < SCORE_K_BLOCKS; ++kb) {
-                // TODO: stage K/Q e8m0 scale columns to SCORE_SCALE_A/B for this K=32 block.
-                score_mma(smem, buf, kb, /*accumulate=*/kb != 0);
-            }
-            tcgen05_commit(smem.mbar_qk_done[buf]);         // signal QK done on async completion
 
             mbar_wait(smem.mbar_so_ready[buf], phase);
-            #pragma unroll
-            for (int dim = 0; dim < VALUE_DIM_BLOCKS; ++dim) {
-                #pragma unroll
-                for (int tk = 0; tk < VALUE_TOKEN_BLOCKS; ++tk) {
-                    // TODO: stage V/S e8m0 scale columns to VALUE_SCALE_A/B.
-                    value_mma(
-                        smem, buf, dim, tk,
-                        /*accumulate=*/value_started[dim] || tk != 0);
-                }
-                value_started[dim] = true;
-            }
+            tcgen05_fence_after_mma();
+
+            issue_value_tile(smem, buf, value_started);
             tcgen05_commit(smem.mbar_sv_done[buf]);
 
-            buf = (buf + 1) % NUM_BUFS;
-            if (buf == 0) phase ^= 1;
+            advance_issue_ring(buf, phase);
         }
     };
 
@@ -361,8 +488,26 @@ __device__ __inline__ void mma_warp(
     run_ring(ks.swa_start, ks.swa_end);
 }
 
+__device__ __inline__ void mma_warp(
+    const HcaParams& p, const KernelState& ks, Smem& smem
+) {
+    if (ks.lane == 0) {
+        score_issue_thread(p, ks, smem);
+    } else if (ks.lane == 1) {
+        value_issue_thread(p, ks, smem);
+    }
+}
+
+///*****************************************************************************
+///*** end mma issue loop
+///*****************************************************************************
 
 
+///*****************************************************************************
+///*** compressor / legacy stubs
+///*****************************************************************************
+
+__device__ __inline__ void compress_branch_warp    (const HcaParams&, const KernelState&, Smem&) {}
 
 template<int CPRSS_NUM>
 __device__ __inline__ void hca_compress(
@@ -410,75 +555,14 @@ __device__ __inline__ void hca_compress(
     }
 }
 
-
-__device__ __inline__ void nope_prod_warp(
-    const HcaParams& p, const KernelState& ks, Smem& smem
-) {
-    if (!elect_one_sync()) return;
-
-    int buf   = 0;
-    int phase = 0;
-    int iter  = 0;
-
-    auto run_ring = [&](const CUtensorMap* tma_K,
-                        const CUtensorMap* tma_S,
-                        int r_start, int r_end)
-    {
-        for (int r = r_start; r < r_end; r += TILE_KV) {
-            if (iter >= NUM_BUFS)
-                mbar_wait(smem.mbar_sv_done[buf], phase ^ 1);
-
-            int tx = TILE_KV * D_NOPE
-                   + TILE_KV * SCALES_PER_TOKEN;
-            mbar_expect(smem.mbar_raw_ready[buf], tx);
-
-            tma_load_3d(tma_K, ks.batch_idx, r, 0,
-                        &smem.u.kv.latent[buf], smem.mbar_raw_ready[buf]);
-            tma_load_3d(tma_S, ks.batch_idx, r, 0,
-                        &smem.u.kv.scales[buf], smem.mbar_raw_ready[buf]);
-
-            ++iter;
-            buf = (buf + 1) % NUM_BUFS;
-            if (buf == 0) phase ^= 1;
-        }
-    };
-    run_ring(&p.tma_Kc,   &p.tma_Kc_scales,   ks.compressed_start, ks.compressed_end);
-    run_ring(&p.tma_Kswa, &p.tma_Kswa_scales, ks.swa_start,        ks.swa_end);
-}
+///*****************************************************************************
+///*** end compressor / legacy stubs
+///*****************************************************************************
 
 
-__device__ __inline__ void rope_prod_warp(
-    const HcaParams& p, const KernelState& ks, Smem& smem
-) {
-    if (!elect_one_sync()) return;
-
-    int buf   = 0;
-    int phase = 0;
-    int iter  = 0;
-
-    auto run_ring = [&](const CUtensorMap* tma_R,
-                        int r_start, int r_end)
-    {
-        for (int r = r_start; r < r_end; r += TILE_KV) {
-            if (iter >= NUM_BUFS)
-                mbar_wait(smem.mbar_qk_done[buf], phase ^ 1);
-
-            int tx = TILE_KV * D_ROPE * sizeof(__nv_bfloat16);
-            mbar_expect(smem.mbar_rope_ready[buf], tx);
-
-            tma_load_3d(tma_R, ks.batch_idx, r, 0,
-                        &smem.u.kv.rope[buf], smem.mbar_rope_ready[buf]);
-
-            ++iter;
-            buf = (buf + 1) % NUM_BUFS;
-            if (buf == 0) phase ^= 1;
-        }
-    };
-
-    run_ring(&p.tma_Kc_rope,   ks.compressed_start, ks.compressed_end);
-    run_ring(&p.tma_Kswa_rope, ks.swa_start,        ks.swa_end);
-}
-
+///*****************************************************************************
+///*** global kernel
+///*****************************************************************************
 
 __global__ void __launch_bounds__(NUM_THREADS, 1, 1)
 hca_decode_kernel(__grid_constant__ const HcaParams p) {
@@ -490,17 +574,13 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
     KernelState ks;
     init_state(ks, p);
 
-    const int wg       = threadIdx.x / 128;
-    const int warp_idx = threadIdx.x / 32;
-
-
-    if (wg == 0) query_load(p, ks, smem);
+    if (ks.wg == 0) query_load(p, ks, smem);
     __syncthreads();
 
-    if (wg == 0) {
+    if (ks.wg == 0) {
         softmax_warpgroup(p, ks, smem);
-    } else if (wg == 1) {
-        switch (warp_idx) {
+    } else if (ks.wg == 1) {
+        switch (ks.warp_idx) {
             case 4: mma_warp             (p, ks, smem); break;
             case 5: nope_prod_warp       (p, ks, smem); break;
             case 6: rope_prod_warp       (p, ks, smem); break;
@@ -508,5 +588,10 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
         }
     }
 }
+
+///*****************************************************************************
+///*** end global kernel
+///*****************************************************************************
+
 
 }

@@ -107,7 +107,8 @@ struct KernelState {
     int head_half_idx;       // 0 or 1 (H=128 -> 2 x B_H=64)
     int partition_idx;       // split-K index along compressed leg
 
-    int warp_id;             // = threadIdx.x / 32   (global, 0..7)
+    int wg;                  // = threadIdx.x / 128  (0..1)
+    int warp_idx;            // = threadIdx.x / 32   (global, 0..7)
     int lane;                // = threadIdx.x & 31
 
     int compressed_start;    // K-token range owned by this CTA
@@ -503,7 +504,8 @@ void init_state(KernelState& ks, const HcaParams& p) {
     ks.batch_idx        = blockIdx.y;
     ks.head_half_idx    = blockIdx.z;
     ks.partition_idx    = blockIdx.x;
-    ks.warp_id          = threadIdx.x / 32;
+    ks.wg               = threadIdx.x / 128;
+    ks.warp_idx         = threadIdx.x / 32;
     ks.lane             = threadIdx.x & 31;
     ks.compressed_start = 0;            // TODO: derive from host scheduler
     ks.compressed_end   = p.M_cur;
