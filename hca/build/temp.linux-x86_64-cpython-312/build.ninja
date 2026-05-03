@@ -1,0 +1,38 @@
+ninja_required_version = 1.3
+cxx = c++
+nvcc = /usr/local/cuda-12.9/bin/nvcc
+
+cflags = -fno-strict-overflow -Wsign-compare -DNDEBUG -g -O2 -Wall -fPIC -I/home/beed/dsv4_attn/hca -I/home/beed/diff_test/flux2_gen/.venv/lib/python3.12/site-packages/torch/include -I/home/beed/diff_test/flux2_gen/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda-12.9/include -I/home/beed/diff_test/flux2_gen/.venv/include -I/usr/include/python3.12 -c
+post_cflags = -O3 -std=c++17 -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+cuda_cflags = -I/home/beed/dsv4_attn/hca -I/home/beed/diff_test/flux2_gen/.venv/lib/python3.12/site-packages/torch/include -I/home/beed/diff_test/flux2_gen/.venv/lib/python3.12/site-packages/torch/include/torch/csrc/api/include -I/usr/local/cuda-12.9/include -I/home/beed/diff_test/flux2_gen/.venv/include -I/usr/include/python3.12 -c
+cuda_post_cflags = -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 -std=c++17 --use_fast_math -U__CUDA_NO_BFLOAT16_CONVERSIONS__ --expt-relaxed-constexpr --expt-extended-lambda -gencode arch=compute_100f,code=sm_100f -DTORCH_API_INCLUDE_EXTENSION_H -DTORCH_EXTENSION_NAME=cuda
+cuda_dlink_post_cflags = 
+sycl_dlink_post_cflags = 
+ldflags = 
+
+rule compile
+  command = $cxx -MMD -MF $out.d $cflags -c $in -o $out $post_cflags
+  depfile = $out.d
+  deps = gcc
+
+rule cuda_compile
+  depfile = $out.d
+  deps = gcc
+  command = $nvcc --generate-dependencies-with-compile --dependency-output $out.d $cuda_cflags -c $in -o $out $cuda_post_cflags
+
+
+
+
+
+
+
+build /home/beed/dsv4_attn/hca/build/temp.linux-x86_64-cpython-312/home/beed/dsv4_attn/hca/pybind.o: compile /home/beed/dsv4_attn/hca/pybind.cpp
+build /home/beed/dsv4_attn/hca/build/temp.linux-x86_64-cpython-312/home/beed/dsv4_attn/hca/sm100/instantiations/m128.o: cuda_compile /home/beed/dsv4_attn/hca/sm100/instantiations/m128.cu
+
+
+
+
+
+
+
+

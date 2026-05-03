@@ -6,31 +6,27 @@
 #include <cstdint>
 #include <type_traits>
 
+///*****************************************************************************
+///*** cute / cutlass includes
+///*****************************************************************************
 #include <cutlass/bfloat16.h>
 #include <cutlass/arch/barrier.h>
 #include <cutlass/float8.h>
 #include <cute/atom/mma_traits_sm100.hpp>
 #include <cute/tensor.hpp>
 #include <deep_gemm/common/sm100_utils.cuh>
+///*****************************************************************************
+///*** end cute / cutlass includes
+///*****************************************************************************
 
 #include "../params.h"
 
 namespace dsv4::hca::sm100 {
 
-// elect.sync: returns true on exactly one lane of the warp; mirrors elect_one_sync.
-__device__ __forceinline__ bool elect_one_sync() {
-    int pred;
-    asm volatile(
-        "{\n"
-        ".reg .pred P;\n"
-        "elect.sync _|P, 0xffffffff;\n"
-        "selp.b32 %0, 1, 0, P;\n"
-        "}\n"
-        : "=r"(pred));
-    return pred != 0;
-}
+///*****************************************************************************
+///*** data / structures
+///*****************************************************************************
 
-// ============== compile-time dims ==============
 constexpr int B_H         = 64;
 constexpr int TILE_KV     = 128;
 constexpr int NUM_BUFS    = 2;
@@ -55,49 +51,6 @@ constexpr int VALUE_TOKEN_BLOCKS = TILE_KV / MMA_MXF8_K;
 // tcgen05 cta_group used kernel-wide (must be the same for every tcgen05 op)
 #define TCGEN05_CTA_GROUP "::2"
 
-__device__ __forceinline__
-uint32_t smem_to_uint(const void* ptr) {
-    return static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
-}
-
-__device__ __forceinline__
-void mbar_init(uint64_t& mbar, int count) {
-    uint32_t addr = smem_to_uint(&mbar);
-    asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;"
-                 :: "r"(addr), "r"(count));
-}
-
-__device__ __forceinline__
-void mbar_arrive(uint64_t& mbar) {
-    uint32_t addr = smem_to_uint(&mbar);
-    asm volatile("mbarrier.arrive.shared::cta.b64 _, [%0];"
-                 :: "r"(addr));
-}
-
-__device__ __forceinline__
-void mbar_expect(uint64_t& mbar, int tx_bytes) {
-    uint32_t addr = smem_to_uint(&mbar);
-    asm volatile("mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
-                 :: "r"(addr), "r"(tx_bytes));
-}
-
-__device__ __forceinline__
-void mbar_wait(uint64_t& mbar, int phase) {
-    uint32_t addr = smem_to_uint(&mbar);
-    int done = 0;
-    while (!done) {
-        asm volatile(
-            "{\n"
-            ".reg .pred P;\n"
-            "mbarrier.try_wait.parity.shared::cta.b64 P, [%1], %2;\n"
-            "selp.b32 %0, 1, 0, P;\n"
-            "}\n"
-            : "=r"(done) : "r"(addr), "r"(phase)
-        );
-    }
-}
-
-// ============== Smem (fp8 e4m3 latent cache + e8m0 scales + bf16 rope/dequant) ==============
 struct alignas(16) Smem {
     union {
         // Q+O phase: live before mma loop and during epilogue
@@ -145,17 +98,112 @@ struct alignas(16) Smem {
     // softmax warpgroup row-half exchange
     uint64_t mbar_softmax;
 
-    // leg merge (compressed → SWA handoff of (m, l, O))
+    // leg merge (compressed -> SWA handoff of (m, l, O))
     uint64_t mbar_leg_merge;
 };
 
-// ============== smem accessor (hides extern __shared__) ==============
+struct KernelState {
+    int batch_idx;
+    int head_half_idx;       // 0 or 1 (H=128 -> 2 x B_H=64)
+    int partition_idx;       // split-K index along compressed leg
+
+    int warp_id;             // = threadIdx.x / 32   (global, 0..7)
+    int lane;                // = threadIdx.x & 31
+
+    int compressed_start;    // K-token range owned by this CTA
+    int compressed_end;
+    int swa_start;
+    int swa_end;
+
+    float* partial_O;        // split-K partial output for this partition
+    float* partial_lse;
+};
+
+struct tmem_cols {
+    static constexpr int O              =   0;   // 2 x 64-col fp32 value accum chunks
+    static constexpr int P              = 128;   // 64-col fp32 score tile: [128 kv, 64 head]
+    static constexpr int SCORE_SCALE_A  = 192;   // e8m0 K scales in TMEM sub-columns
+    static constexpr int SCORE_SCALE_B  = 208;   // e8m0 Q scales in TMEM sub-columns
+    static constexpr int VALUE_SCALE_A  = 224;   // e8m0 V scales; see value-scale caveat
+    static constexpr int VALUE_SCALE_B  = 240;   // e8m0 S scales
+};
+
+///*****************************************************************************
+///*** end data / structures
+///*****************************************************************************
+
+///*****************************************************************************
+///*** mbar helpers
+///*****************************************************************************
+
+__device__ __forceinline__
+uint32_t smem_to_uint(const void* ptr) {
+    return static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+}
+
+__device__ __forceinline__
+void mbar_init(uint64_t& mbar, int count) {
+    uint32_t addr = smem_to_uint(&mbar);
+    asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;"
+                 :: "r"(addr), "r"(count));
+}
+
+__device__ __forceinline__
+void mbar_arrive(uint64_t& mbar) {
+    uint32_t addr = smem_to_uint(&mbar);
+    asm volatile("mbarrier.arrive.shared::cta.b64 _, [%0];"
+                 :: "r"(addr));
+}
+
+__device__ __forceinline__
+void mbar_expect(uint64_t& mbar, int tx_bytes) {
+    uint32_t addr = smem_to_uint(&mbar);
+    asm volatile("mbarrier.arrive.expect_tx.shared::cta.b64 _, [%0], %1;"
+                 :: "r"(addr), "r"(tx_bytes));
+}
+
+__device__ __forceinline__
+void mbar_wait(uint64_t& mbar, int phase) {
+    uint32_t addr = smem_to_uint(&mbar);
+    int done = 0;
+    while (!done) {
+        asm volatile(
+            "{\n"
+            ".reg .pred P;\n"
+            "mbarrier.try_wait.parity.shared::cta.b64 P, [%1], %2;\n"
+            "selp.b32 %0, 1, 0, P;\n"
+            "}\n"
+            : "=r"(done) : "r"(addr), "r"(phase)
+        );
+    }
+}
+
+///*****************************************************************************
+///*** end mbar helpers
+///*****************************************************************************
+
+///*****************************************************************************
+///*** other tcgen / ptx helpers
+///*****************************************************************************
+
+// elect.sync: returns true on exactly one lane of the warp; mirrors elect_one_sync.
+__device__ __forceinline__ bool elect_one_sync() {
+    int pred;
+    asm volatile(
+        "{\n"
+        ".reg .pred P;\n"
+        "elect.sync _|P, 0xffffffff;\n"
+        "selp.b32 %0, 1, 0, P;\n"
+        "}\n"
+        : "=r"(pred));
+    return pred != 0;
+}
+
 __device__ __forceinline__ Smem& shared_state() {
     extern __shared__ char __smem_storage[];
     return *reinterpret_cast<Smem*>(__smem_storage);
 }
 
-// ============== PTX wrappers ==============
 __device__ __forceinline__
 __nv_bfloat16 ldg_bf16(const __nv_bfloat16* ptr) {
     uint16_t bits;
@@ -187,37 +235,6 @@ void tma_load_3d(const CUtensorMap* desc,
         : "memory");
 }
 
-// ============== quant / cvt helpers ==============
-
-/// Warp-wide max reduction across 32 lanes (xor butterfly).
-__device__ __forceinline__ float warp_reduce_max(float v) {
-    #pragma unroll
-    for (int s = 16; s > 0; s >>= 1)
-        v = fmaxf(v, __shfl_xor_sync(0xffffffff, v, s));
-    return v;
-}
-
-/// fp32 -> ue8m0 byte, round-positive (smallest power of 2 >= x).
-__device__ __forceinline__ uint8_t f32_to_e8m0_rp(float x) {
-    uint16_t pair;
-    asm("cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %1;" : "=h"(pair) : "f"(x));
-    return (uint8_t)(pair & 0xff);
-}
-
-/// ue8m0 byte -> fp32 (= 2^(byte - 127)).
-__device__ __forceinline__ float e8m0_to_f32(uint8_t b) {
-    return __uint_as_float((uint32_t)b << 23);
-}
-
-/// 4x fp32 -> 4x fp8 e4m3, RTNE saturating, packed into one u32.
-__device__ __forceinline__ uint32_t f32x4_to_e4m3x4(const float (&v)[4]) {
-    uint16_t lo, hi;
-    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(lo) : "f"(v[0]), "f"(v[1]));
-    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(hi) : "f"(v[2]), "f"(v[3]));
-    return (uint32_t)lo | ((uint32_t)hi << 16);
-}
-
-// ============== TMEM addressing ==============
 // 32-bit TMEM address: [31:16] lane index, [15:0] column index.
 // `base` is the per-CTA tmem allocation base (col=0, lane=0).
 __device__ __forceinline__
@@ -225,105 +242,14 @@ uint32_t tmem_addr(uint32_t base, int col, int lane = 0) {
     return base + (uint32_t(lane) << 16) + uint32_t(col);
 }
 
-namespace detail {
-
-__device__ __forceinline__
-uint64_t make_kmajor_smem_desc(
-    const void* ptr,
-    uint32_t row_stride_elems,
-    cute::UMMA::LayoutType layout_type = cute::UMMA::LayoutType::SWIZZLE_32B
-) {
-    // K-major mxf8 tiles are K=32 bytes wide; the descriptor stride hops
-    // between 8-row MN atoms in the original row-strided staging buffer.
-    auto* smem_ptr = const_cast<void*>(ptr);
-    const uint32_t stride_byte_offset = 8u * row_stride_elems;
-    return static_cast<uint64_t>(
-        deep_gemm::sm100::make_smem_desc(
-            layout_type, smem_ptr, stride_byte_offset, /*leading_byte_offset=*/0));
-}
-
-template<int M, int N,
-         cute::UMMA::Major AMajor = cute::UMMA::Major::K,
-         cute::UMMA::Major BMajor = cute::UMMA::Major::K>
-__device__ __forceinline__
-uint64_t make_mxf8_runtime_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return cute::UMMA::make_runtime_instr_desc_block_scaled<
-        cutlass::float_e4m3_t, cutlass::float_e4m3_t,
-        float, cutlass::float_ue8m0_t,
-        M, N, AMajor, BMajor>(scale_a_tmem, scale_b_tmem);
-}
-
-template<int M, int N>
-__device__ __forceinline__
-void tcgen05_mxf8_2sm_ss(
-    uint32_t d_tmem,
-    uint64_t a_desc,
-    uint64_t b_desc,
-    uint32_t scale_a_tmem,
-    uint32_t scale_b_tmem,
-    bool accumulate
-) {
-    const uint64_t idesc =
-        make_mxf8_runtime_idesc<M, N>(scale_a_tmem, scale_b_tmem);
-    deep_gemm::sm100::SM100_MMA_MXF8F6F4_2x1SM_SS::fma(
-        a_desc, b_desc, d_tmem, uint32_t(accumulate), idesc,
-        scale_a_tmem, scale_b_tmem);
-}
-
-}  // namespace detail
-
-// Score: A=K[token, dim], B=Q^T[dim, head], D=P[token, head].
-__device__ __forceinline__
-uint64_t make_score_a_sdesc(const Smem& smem, int buf, int k_block) {
-    const auto* ptr = &smem.u.kv.latent[buf][k_block * MMA_MXF8_K];
-    return detail::make_kmajor_smem_desc(ptr, D_NOPE);
-}
-
-__device__ __forceinline__
-uint64_t make_score_b_sdesc(const Smem& smem, int k_block) {
-    const auto* q_fp8 = reinterpret_cast<const __nv_fp8_e4m3*>(&smem.u.qo.o_buf[0]);
-    return detail::make_kmajor_smem_desc(
-        &q_fp8[k_block * MMA_MXF8_K], D_NOPE);
-}
-
-__device__ __forceinline__
-uint32_t make_score_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return uint32_t(
-        detail::make_mxf8_runtime_idesc<SCORE_M, SCORE_N>(
-            scale_a_tmem, scale_b_tmem) >> 32);
-}
-
-// Value: A=V^T[value_dim, token], B=S[token, head], D=O^T[value_dim, head].
-// `latent` must be staged in V^T order before this descriptor is correct.
-__device__ __forceinline__
-uint64_t make_value_a_sdesc(const Smem& smem, int buf, int dim_block, int token_block) {
-    const int value_dim = dim_block * VALUE_M;
-    const int token     = token_block * MMA_MXF8_K;
-    const auto* ptr = &smem.u.kv.latent[buf][value_dim * TILE_KV + token];
-    return detail::make_kmajor_smem_desc(ptr, TILE_KV);
-}
-
-__device__ __forceinline__
-uint64_t make_value_b_sdesc(const Smem& smem, int buf, int token_block) {
-    const int token = token_block * MMA_MXF8_K;
-    const auto* ptr = &smem.u.kv.softmax[buf][token];
-    return detail::make_kmajor_smem_desc(ptr, TILE_KV);
-}
-
-__device__ __forceinline__
-uint32_t make_value_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return uint32_t(
-        detail::make_mxf8_runtime_idesc<VALUE_M, VALUE_N>(
-            scale_a_tmem, scale_b_tmem) >> 32);
-}
-
-// ============== tcgen05 fence / commit ==============
 __device__ __forceinline__ void tcgen05_fence_before_mma() {
     asm volatile("tcgen05.fence::before_thread_sync;" ::: "memory");
 }
+
 __device__ __forceinline__ void tcgen05_fence_after_mma() {
     asm volatile("tcgen05.fence::after_thread_sync;" ::: "memory");
 }
+
 __device__ __forceinline__ void tcgen05_commit(uint64_t& mbar) {
     uint32_t addr = smem_to_uint(&mbar);
     asm volatile(
@@ -359,7 +285,204 @@ void tcgen05_ld_32x32b_x32(uint32_t taddr, float (&out)[32]) {
     }
 }
 
-// ============== one-time setup ==============
+///*****************************************************************************
+///*** end other tcgen / ptx helpers
+///*****************************************************************************
+
+///*****************************************************************************
+///*** quant / cvt helpers
+///*****************************************************************************
+
+__device__ __forceinline__ float warp_reduce_max(float v) {
+    #pragma unroll
+    for (int s = 16; s > 0; s >>= 1)
+        v = fmaxf(v, __shfl_xor_sync(0xffffffff, v, s));
+    return v;
+}
+
+// fp32 -> ue8m0 byte, round-positive (smallest power of 2 >= x).
+__device__ __forceinline__ uint8_t f32_to_e8m0_rp(float x) {
+    uint16_t pair;
+    asm("cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %1;" : "=h"(pair) : "f"(x));
+    return (uint8_t)(pair & 0xff);
+}
+
+// ue8m0 byte -> fp32 (= 2^(byte - 127)).
+__device__ __forceinline__ float e8m0_to_f32(uint8_t b) {
+    return __uint_as_float((uint32_t)b << 23);
+}
+
+// 4x fp32 -> 4x fp8 e4m3, RTNE saturating, packed into one u32.
+__device__ __forceinline__ uint32_t f32x4_to_e4m3x4(const float (&v)[4]) {
+    uint16_t lo, hi;
+    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(lo) : "f"(v[0]), "f"(v[1]));
+    asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(hi) : "f"(v[2]), "f"(v[3]));
+    return (uint32_t)lo | ((uint32_t)hi << 16);
+}
+
+///*****************************************************************************
+///*** end quant / cvt helpers
+///*****************************************************************************
+
+///*****************************************************************************
+///*** descriptor helpers
+///*****************************************************************************
+
+__device__ __forceinline__
+uint64_t make_kmajor_smem_desc(
+    const void* ptr,
+    uint32_t row_stride_elems,
+    cute::UMMA::LayoutType layout_type = cute::UMMA::LayoutType::SWIZZLE_32B
+) {
+    // K-major mxf8 tiles are K=32 bytes wide; the descriptor stride hops
+    // between 8-row MN atoms in the original row-strided staging buffer.
+    auto* smem_ptr = const_cast<void*>(ptr);
+    const uint32_t stride_byte_offset = 8u * row_stride_elems;
+    return static_cast<uint64_t>(
+        deep_gemm::sm100::make_smem_desc(
+            layout_type, smem_ptr, stride_byte_offset, /*leading_byte_offset=*/0));
+}
+
+template<int M, int N,
+         cute::UMMA::Major AMajor = cute::UMMA::Major::K,
+         cute::UMMA::Major BMajor = cute::UMMA::Major::K>
+__device__ __forceinline__
+uint64_t make_mxf8_runtime_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return cute::UMMA::make_runtime_instr_desc_block_scaled<
+        cutlass::float_e4m3_t, cutlass::float_e4m3_t,
+        float, cutlass::float_ue8m0_t,
+        M, N, AMajor, BMajor>(scale_a_tmem, scale_b_tmem);
+}
+
+// Score: A=K[token, dim], B=Q^T[dim, head], D=P[token, head].
+__device__ __forceinline__
+uint64_t make_score_a_sdesc(const Smem& smem, int buf, int k_block) {
+    const auto* ptr = &smem.u.kv.latent[buf][k_block * MMA_MXF8_K];
+    return make_kmajor_smem_desc(ptr, D_NOPE);
+}
+
+__device__ __forceinline__
+uint64_t make_score_b_sdesc(const Smem& smem, int k_block) {
+    const auto* q_fp8 = reinterpret_cast<const __nv_fp8_e4m3*>(&smem.u.qo.o_buf[0]);
+    return make_kmajor_smem_desc(
+        &q_fp8[k_block * MMA_MXF8_K], D_NOPE);
+}
+
+__device__ __forceinline__
+uint32_t make_score_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return uint32_t(
+        make_mxf8_runtime_idesc<SCORE_M, SCORE_N>(
+            scale_a_tmem, scale_b_tmem) >> 32);
+}
+
+// Value: A=V^T[value_dim, token], B=S[token, head], D=O^T[value_dim, head].
+// `latent` must be staged in V^T order before this descriptor is correct.
+__device__ __forceinline__
+uint64_t make_value_a_sdesc(const Smem& smem, int buf, int dim_block, int token_block) {
+    const int value_dim = dim_block * VALUE_M;
+    const int token     = token_block * MMA_MXF8_K;
+    const auto* ptr = &smem.u.kv.latent[buf][value_dim * TILE_KV + token];
+    return make_kmajor_smem_desc(ptr, TILE_KV);
+}
+
+__device__ __forceinline__
+uint64_t make_value_b_sdesc(const Smem& smem, int buf, int token_block) {
+    const int token = token_block * MMA_MXF8_K;
+    const auto* ptr = &smem.u.kv.softmax[buf][token];
+    return make_kmajor_smem_desc(ptr, TILE_KV);
+}
+
+__device__ __forceinline__
+uint32_t make_value_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
+    return uint32_t(
+        make_mxf8_runtime_idesc<VALUE_M, VALUE_N>(
+            scale_a_tmem, scale_b_tmem) >> 32);
+}
+
+__device__ __forceinline__
+uint32_t score_scale_a_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_A);
+}
+
+__device__ __forceinline__
+uint32_t score_scale_b_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_B);
+}
+
+__device__ __forceinline__
+uint32_t value_scale_a_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_A);
+}
+
+__device__ __forceinline__
+uint32_t value_scale_b_tmem(const Smem& smem) {
+    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_B);
+}
+
+///*****************************************************************************
+///*** end descriptor helpers
+///*****************************************************************************
+
+///*****************************************************************************
+///*** mma helpers
+///*****************************************************************************
+
+template<int M, int N>
+__device__ __forceinline__
+void tcgen05_mxf8_2sm_ss(
+    uint32_t d_tmem,
+    uint64_t a_desc,
+    uint64_t b_desc,
+    uint32_t scale_a_tmem,
+    uint32_t scale_b_tmem,
+    bool accumulate
+) {
+    const uint64_t idesc =
+        make_mxf8_runtime_idesc<M, N>(scale_a_tmem, scale_b_tmem);
+    deep_gemm::sm100::SM100_MMA_MXF8F6F4_2x1SM_SS::fma(
+        a_desc, b_desc, d_tmem, uint32_t(accumulate), idesc,
+        scale_a_tmem, scale_b_tmem);
+}
+
+// A thin 2SM mxf8 score issue. The caller must have staged K/Q scale factors
+// into SCORE_SCALE_A/B before issuing this K=32 block.
+__device__ __forceinline__
+void score_mma(const Smem& smem, int buf, int k_block, bool accumulate) {
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
+    const uint64_t a_desc = make_score_a_sdesc(smem, buf, k_block);
+    const uint64_t b_desc = make_score_b_sdesc(smem, k_block);
+
+    tcgen05_fence_before_mma();
+    tcgen05_mxf8_2sm_ss<SCORE_M, SCORE_N>(
+        d_tmem, a_desc, b_desc,
+        score_scale_a_tmem(smem), score_scale_b_tmem(smem),
+        accumulate);
+}
+
+// Value uses the same SS form. This assumes V is transposed/staged as
+// [value_dim, token] and softmax is staged as S^T [head, token].
+__device__ __forceinline__
+void value_mma(const Smem& smem, int buf, int dim_block, int token_block, bool accumulate) {
+    const uint32_t d_tmem = tmem_addr(
+        smem.tmem_start_addr, tmem_cols::O + dim_block * VALUE_N);
+    const uint64_t a_desc = make_value_a_sdesc(smem, buf, dim_block, token_block);
+    const uint64_t b_desc = make_value_b_sdesc(smem, buf, token_block);
+
+    tcgen05_fence_before_mma();
+    tcgen05_mxf8_2sm_ss<VALUE_M, VALUE_N>(
+        d_tmem, a_desc, b_desc,
+        value_scale_a_tmem(smem), value_scale_b_tmem(smem),
+        accumulate);
+}
+
+///*****************************************************************************
+///*** end mma helpers
+///*****************************************************************************
+
+///*****************************************************************************
+///*** init helpers
+///*****************************************************************************
+
 __device__ __forceinline__
 void prefetch_tma_descriptors(const HcaParams& p) {
     if ((threadIdx.x & 31) == 0 && (threadIdx.x / 32) == 0) {
@@ -374,25 +497,6 @@ void prefetch_tma_descriptors(const HcaParams& p) {
         prefetch_tma_descriptor(&p.tma_Kswa_rope);
     }
 }
-
-// ============== KernelState (per-CTA derived info, not in HcaParams) ==============
-struct KernelState {
-    int batch_idx;
-    int head_half_idx;       // 0 or 1 (H=128 → 2× B_H=64)
-    int partition_idx;       // split-K index along compressed leg
-
-    int warp_id;             // = threadIdx.x / 32   (global, 0..7)
-    int lane;                // = threadIdx.x & 31
-
-    int compressed_start;    // K-token range owned by this CTA
-    int compressed_end;
-    int swa_start;
-    int swa_end;
-
-    float* partial_O;        // split-K partial output for this partition
-    float* partial_lse;
-};
-
 
 __device__ __forceinline__
 void init_state(KernelState& ks, const HcaParams& p) {
@@ -417,69 +521,6 @@ void init_state(KernelState& ks, const HcaParams& p) {
         + int64_t(ks.head_half_idx) * B_H;
 }
 
-
-// ============== tmem column layout ==============
-struct tmem_cols {
-    static constexpr int O              =   0;   // 2 x 64-col fp32 value accum chunks
-    static constexpr int P              = 128;   // 64-col fp32 score tile: [128 kv, 64 head]
-    static constexpr int SCORE_SCALE_A  = 192;   // e8m0 K scales in TMEM sub-columns
-    static constexpr int SCORE_SCALE_B  = 208;   // e8m0 Q scales in TMEM sub-columns
-    static constexpr int VALUE_SCALE_A  = 224;   // e8m0 V scales; see value-scale caveat
-    static constexpr int VALUE_SCALE_B  = 240;   // e8m0 S scales
-};
-
-__device__ __forceinline__
-uint32_t score_scale_a_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_A);
-}
-
-__device__ __forceinline__
-uint32_t score_scale_b_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_B);
-}
-
-__device__ __forceinline__
-uint32_t value_scale_a_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_A);
-}
-
-__device__ __forceinline__
-uint32_t value_scale_b_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_B);
-}
-
-// A thin 2SM mxf8 score issue. The caller must have staged K/Q scale factors
-// into SCORE_SCALE_A/B before issuing this K=32 block.
-__device__ __forceinline__
-void score_mma(const Smem& smem, int buf, int k_block, bool accumulate) {
-    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
-    const uint64_t a_desc = make_score_a_sdesc(smem, buf, k_block);
-    const uint64_t b_desc = make_score_b_sdesc(smem, k_block);
-
-    tcgen05_fence_before_mma();
-    detail::tcgen05_mxf8_2sm_ss<SCORE_M, SCORE_N>(
-        d_tmem, a_desc, b_desc,
-        score_scale_a_tmem(smem), score_scale_b_tmem(smem),
-        accumulate);
-}
-
-// Value uses the same SS form. This assumes V is transposed/staged as
-// [value_dim, token] and softmax is staged as S^T [head, token].
-__device__ __forceinline__
-void value_mma(const Smem& smem, int buf, int dim_block, int token_block, bool accumulate) {
-    const uint32_t d_tmem = tmem_addr(
-        smem.tmem_start_addr, tmem_cols::O + dim_block * VALUE_N);
-    const uint64_t a_desc = make_value_a_sdesc(smem, buf, dim_block, token_block);
-    const uint64_t b_desc = make_value_b_sdesc(smem, buf, token_block);
-
-    tcgen05_fence_before_mma();
-    detail::tcgen05_mxf8_2sm_ss<VALUE_M, VALUE_N>(
-        d_tmem, a_desc, b_desc,
-        value_scale_a_tmem(smem), value_scale_b_tmem(smem),
-        accumulate);
-}
-
-
 __device__ __forceinline__
 void init_smem(Smem& smem) {
     if (threadIdx.x == 0) {
@@ -503,5 +544,9 @@ void init_smem(Smem& smem) {
     }
     __syncthreads();
 }
+
+///*****************************************************************************
+///*** end init helpers
+///*****************************************************************************
 
 }
