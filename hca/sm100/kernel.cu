@@ -57,6 +57,155 @@ __device__ __forceinline__ void wait_score_mma(
     tcgen05_fence_after_mma();
 }
 
+__device__ __forceinline__ void compute_warp_ml(
+    const HcaParams& p,
+    const KernelState& ks,
+    Smem& smem,
+    int tile_start,
+    int tile_end
+) {
+    // wg0 only. Each warp loads one 32-token x 32-head quadrant from local
+    // CTA TMEM, reduces over token lanes, and stores 32 per-head partials.
+    const int wg_warp   = ks.warp_idx & 3;
+    const int head_half = wg_warp >> 1;
+    const int tok_half  = wg_warp & 1;
+
+    const int lane_base  = head_half * 64 + tok_half * 32;
+    const int local_tok  = tok_half * 32 + ks.lane;
+    const int global_tok = tile_start + ks.cta_rank_in_pair * 64 + local_tok;
+    const bool valid     = global_tok < tile_end;
+
+    float score[32];
+    tcgen05_ld_32x32b_x32(
+        tmem_addr(smem.tmem_start_addr, tmem_cols::P, lane_base),
+        score);
+
+    float m[32];
+    #pragma unroll
+    for (int h = 0; h < 32; ++h) {
+        score[h] = valid ? score[h] * p.sm_scale_log2 : -INFINITY;
+        m[h] = score[h];
+    }
+
+    #pragma unroll
+    for (int off = 16; off > 0; off >>= 1) {
+        #pragma unroll
+        for (int h = 0; h < 32; ++h) {
+            m[h] = fmaxf(m[h], __shfl_down_sync(0xffffffff, m[h], off));
+        }
+    }
+
+    float l[32];
+    #pragma unroll
+    for (int h = 0; h < 32; ++h) {
+        m[h] = __shfl_sync(0xffffffff, m[h], 0);
+        l[h] = valid ? exp2f(score[h] - m[h]) : 0.0f;
+    }
+
+    #pragma unroll
+    for (int off = 16; off > 0; off >>= 1) {
+        #pragma unroll
+        for (int h = 0; h < 32; ++h) {
+            l[h] += __shfl_down_sync(0xffffffff, l[h], off);
+        }
+    }
+
+    if (ks.lane == 0) {
+        #pragma unroll
+        for (int h = 0; h < 32; ++h) {
+            smem.partial_m[wg_warp][h] = m[h];
+            smem.partial_l[wg_warp][h] = l[h];
+        }
+    }
+}
+
+__device__ __forceinline__ void dsmem_reduce(
+    const KernelState& ks,
+    Smem& smem
+) {
+    const int wg_warp = ks.warp_idx & 3;
+
+    sync_softmax_wg(smem);
+
+    if (wg_warp == 0 && ks.lane == 0) {
+        auto* peer_bar = peer_ptr(&smem.mbar_peer_partials);
+
+        dsmem_expect_tx(peer_bar, 2 * 4 * 32 * sizeof(float));
+
+        dsmem_copy_async(
+            peer_ptr(&smem.peer_partial_m[0][0]),
+            &smem.partial_m[0][0],
+            4 * 32 * sizeof(float),
+            peer_bar);
+
+        dsmem_copy_async(
+            peer_ptr(&smem.peer_partial_l[0][0]),
+            &smem.partial_l[0][0],
+            4 * 32 * sizeof(float),
+            peer_bar);
+    }
+
+    dsmem_wait(smem.mbar_peer_partials);
+
+    if (wg_warp == 0) {
+        int h = ks.lane;
+
+        #pragma unroll
+        for (int hb = 0; hb < 64; hb += 32) {
+            int r = hb == 0 ? 0 : 2;
+
+            float m0 = smem.partial_m[r + 0][h];
+            float l0 = smem.partial_l[r + 0][h];
+            float m1 = smem.partial_m[r + 1][h];
+            float l1 = smem.partial_l[r + 1][h];
+
+            float m2 = smem.peer_partial_m[r + 0][h];
+            float l2 = smem.peer_partial_l[r + 0][h];
+            float m3 = smem.peer_partial_m[r + 1][h];
+            float l3 = smem.peer_partial_l[r + 1][h];
+
+            float tile_m = fmaxf(fmaxf(m0, m1), fmaxf(m2, m3));
+            float tile_l =
+                l0 * exp2f(m0 - tile_m) +
+                l1 * exp2f(m1 - tile_m) +
+                l2 * exp2f(m2 - tile_m) +
+                l3 * exp2f(m3 - tile_m);
+
+            int head = hb + h;
+            smem.curr_m[head] = tile_m;
+            smem.curr_l[head] = tile_l;
+        }
+    }
+
+    sync_softmax_wg(smem);
+}
+
+__device__ __forceinline__ void tok_reduce_x32(
+    const HcaParams& p,
+    Smem& smem,
+    int tmem_col,
+    int head_base,
+    int tile_start,
+    int tile_end,
+    int& softmax_phase
+) {
+    // TODO: wg0 token-reduce primitive for P[token, head]. For 2SM M=128 the
+    // score tile is token-split across the CTA pair: each CTA owns local TMEM
+    // for 64 tokens x 64 heads, not a duplicated 128 x 64 tile. Four warps
+    // reduce this CTA's local token slice, producing local max/sum per head in
+    // smem. Then exchange those partials through cluster/peer smem, combine
+    // with the peer CTA to get global tile_m/tile_l per head, and normalize
+    // this CTA's local P slice. Head halves come from the 2x2 TMEM lane layout,
+    // not from cta_rank * 32 column offsets.
+    (void)p;
+    (void)smem;
+    (void)tmem_col;
+    (void)head_base;
+    (void)tile_start;
+    (void)tile_end;
+    (void)softmax_phase;
+}
+
 __device__ __forceinline__ void load_score_tile(
     const HcaParams& p,
     const Smem& smem,
@@ -153,6 +302,7 @@ __device__ __forceinline__ void release_value_mma(
 
 __device__ __forceinline__ void consume_score_tile(
     const HcaParams& p,
+    const KernelState& ks,
     Smem& smem,
     int tile_start,
     int tile_end,
@@ -160,6 +310,9 @@ __device__ __forceinline__ void consume_score_tile(
     int& softmax_phase
 ) {
     wait_score_mma(smem, pipe);
+    compute_warp_ml(p, ks, smem, tile_start, tile_end);
+    softmax_wg_sync(smem, softmax_phase);
+    dsmem_reduce(ks, smem);
 
     float score[32];
     load_score_tile(p, smem, tile_start, tile_end, score);
@@ -230,7 +383,7 @@ __device__ __inline__ void softmax_warpgroup(
 
     auto run_score_tiles = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
-            consume_score_tile(p, smem, r, r_end, pipe, softmax_phase);
+            consume_score_tile(p, ks, smem, r, r_end, pipe, softmax_phase);
         }
     };
 
@@ -401,13 +554,28 @@ void advance_issue_ring(int& buf, int& phase) {
 }
 
 __device__ __forceinline__
+void tmem_store_e8m0_ones_x16(uint32_t addr) {
+    constexpr uint32_t one = 0x7f7f7f7f;  // four packed e8m0(1.0) bytes
+    asm volatile(
+        "tcgen05.st.sync.aligned.32x32b.x16.b32 [%0], "
+        "{%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1};"
+        :: "r"(addr), "r"(one) : "memory");
+}
+
+__device__ __forceinline__
+void init_scale_tmem_ones(Smem& smem) {
+    tmem_store_e8m0_ones_x16(score_scale_a_tmem(smem));
+    tmem_store_e8m0_ones_x16(score_scale_b_tmem(smem));
+    tmem_store_e8m0_ones_x16(value_scale_a_tmem(smem));
+    tmem_store_e8m0_ones_x16(value_scale_b_tmem(smem));
+}
+
+__device__ __forceinline__
 void stage_score_scales(Smem&, int, int) {
-    // TODO: stage K/Q e8m0 scale columns to SCORE_SCALE_A/B for this K=32 block.
 }
 
 __device__ __forceinline__
 void stage_value_scales(Smem&, int, int, int) {
-    // TODO: stage V/S e8m0 scale columns to VALUE_SCALE_A/B.
 }
 
 __device__ __forceinline__
@@ -491,6 +659,9 @@ __device__ __inline__ void value_issue_thread(
 __device__ __inline__ void mma_warp(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
+    init_scale_tmem_ones(smem);
+    __syncwarp();
+
     if (ks.lane == 0) {
         score_issue_thread(p, ks, smem);
     } else if (ks.lane == 1) {

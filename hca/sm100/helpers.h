@@ -73,6 +73,10 @@ struct alignas(16) Smem {
     } u;
 
     float         p_exchange [4][16 * TILE_KV / 4];   // 8 KB  warp coord
+    float         partial_m  [4][32];                  // 0.5 KB  local warp max partials
+    float         partial_l  [4][32];                  // 0.5 KB  local warp sum partials
+    float         peer_partial_m[4][32];               // 0.5 KB  peer CTA warp max partials
+    float         peer_partial_l[4][32];               // 0.5 KB  peer CTA warp sum partials
     float         rowwise_max[128];                   // 0.5 KB
     float         rolling_m[B_H];                     // committed softmax max per head row
     float         rolling_l[B_H];                     // committed softmax sum per head row
@@ -97,6 +101,7 @@ struct alignas(16) Smem {
 
     // softmax warpgroup row-half exchange
     uint64_t mbar_softmax;
+    uint64_t mbar_peer_partials;
 
     // leg merge (compressed -> SWA handoff of (m, l, O))
     uint64_t mbar_leg_merge;
@@ -110,6 +115,7 @@ struct KernelState {
     int wg;                  // = threadIdx.x / 128  (0..1)
     int warp_idx;            // = threadIdx.x / 32   (global, 0..7)
     int lane;                // = threadIdx.x & 31
+    int cta_rank_in_pair;    // = %cluster_ctarank & 1 for tcgen05 cta_group::2
 
     int compressed_start;    // K-token range owned by this CTA
     int compressed_end;
@@ -177,6 +183,76 @@ void mbar_wait(uint64_t& mbar, int phase) {
             : "=r"(done) : "r"(addr), "r"(phase)
         );
     }
+}
+
+__device__ __forceinline__
+uint64_t mbar_arrive_state(uint64_t& mbar) {
+    uint32_t addr = smem_to_uint(&mbar);
+    uint64_t state;
+    asm volatile("mbarrier.arrive.shared::cta.b64 %0, [%1];"
+                 : "=l"(state) : "r"(addr) : "memory");
+    return state;
+}
+
+__device__ __forceinline__
+void mbar_wait_state(uint64_t& mbar, uint64_t state) {
+    uint32_t addr = smem_to_uint(&mbar);
+    int done = 0;
+    while (!done) {
+        asm volatile(
+            "{\n"
+            ".reg .pred P;\n"
+            "mbarrier.try_wait.acquire.cluster.shared::cta.b64 P, [%1], %2;\n"
+            "selp.b32 %0, 1, 0, P;\n"
+            "}\n"
+            : "=r"(done) : "r"(addr), "l"(state) : "memory"
+        );
+    }
+}
+
+__device__ __forceinline__
+void sync_softmax_wg(Smem& smem) {
+    uint64_t state = mbar_arrive_state(smem.mbar_softmax);
+    mbar_wait_state(smem.mbar_softmax, state);
+}
+
+static constexpr uint64_t PEER_ADDR_MASK = 1ull << 24;
+
+template <typename T>
+__device__ __forceinline__
+T* peer_ptr(T* p) {
+    return reinterpret_cast<T*>(reinterpret_cast<uint64_t>(p) ^ PEER_ADDR_MASK);
+}
+
+__device__ __forceinline__
+void dsmem_expect_tx(uint64_t* peer_mbar, int tx_bytes) {
+    uint64_t addr = reinterpret_cast<uint64_t>(peer_mbar);
+    asm volatile(
+        "mbarrier.arrive.expect_tx.release.cluster.b64 _, [%0], %1;"
+        :: "l"(addr), "r"(tx_bytes) : "memory");
+}
+
+__device__ __forceinline__
+void dsmem_copy_async(
+    void* dst_peer_smem,
+    const void* src_smem,
+    int bytes,
+    uint64_t* peer_mbar
+) {
+    uint32_t dst  = smem_to_uint(dst_peer_smem);
+    uint32_t src  = smem_to_uint(src_smem);
+    uint32_t mbar = smem_to_uint(peer_mbar);
+
+    asm volatile(
+        "cp.async.bulk.shared::cluster.shared::cta.mbarrier::complete_tx::bytes "
+        "[%0], [%1], %2, [%3];"
+        :: "r"(dst), "r"(src), "r"(bytes), "r"(mbar) : "memory");
+}
+
+__device__ __forceinline__
+void dsmem_wait(uint64_t& mbar) {
+    uint64_t state = mbar_arrive_state(mbar);
+    mbar_wait_state(mbar, state);
 }
 
 ///*****************************************************************************
@@ -500,6 +576,13 @@ void prefetch_tma_descriptors(const HcaParams& p) {
 }
 
 __device__ __forceinline__
+int get_cta_rank_in_pair() {
+    uint32_t rank;
+    asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(rank));
+    return int(rank & 1u);
+}
+
+__device__ __forceinline__
 void init_state(KernelState& ks, const HcaParams& p) {
     ks.batch_idx        = blockIdx.y;
     ks.head_half_idx    = blockIdx.z;
@@ -507,6 +590,7 @@ void init_state(KernelState& ks, const HcaParams& p) {
     ks.wg               = threadIdx.x / 128;
     ks.warp_idx         = threadIdx.x / 32;
     ks.lane             = threadIdx.x & 31;
+    ks.cta_rank_in_pair = get_cta_rank_in_pair();
     ks.compressed_start = 0;            // TODO: derive from host scheduler
     ks.compressed_end   = p.M_cur;
     ks.swa_start        = 0;
@@ -542,6 +626,7 @@ void init_smem(Smem& smem) {
         mbar_init(smem.mbar_cprss_in,   1);
         mbar_init(smem.mbar_cprss_done, 1);
         mbar_init(smem.mbar_softmax,    128);
+        mbar_init(smem.mbar_peer_partials, 129);
         mbar_init(smem.mbar_leg_merge,  128);
     }
     __syncthreads();
