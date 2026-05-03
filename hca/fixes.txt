@@ -1,0 +1,138 @@
+HCA kernel — discrepancies vs vLLM PR #40760 (DeepseekV4)
+==========================================================
+
+Sources of truth:
+  - vllm/model_executor/layers/deepseek_v4_attention.py
+  - vllm/model_executor/layers/deepseek_compressor.py
+  - csrc/fused_deepseek_v4_qnorm_rope_kv_insert_kernel.cu  (header has the
+    full cache-layout spec)
+  - HF deepseek-ai/DeepSeek-V4-Pro/config.json (head_dim=512, qk_rope_head_dim=64,
+    quantization_config: fp8 e4m3 + ue8m0 scales, weight_block_size [128,128])
+
+Out of scope here (intentional, will not change):
+  - Q-nope quantization to fp8 inside query_load. vLLM keeps Q bf16 and
+    dispatches bf16 x fp8 mxf8f6f4. We are choosing the symmetric fp8 x fp8
+    path; extra rounding on Q is acceptable.
+
+
+Fix 1: D_NOPE is 448, not 512
+-----------------------------
+Issue:
+  helpers.h declares D_NOPE = 512 and D_Q = D_NOPE + D_ROPE = 576. The
+  kernel treats Q as a 576-wide concat (512 nope || 64 rope) and the K-nope
+  cache as 512 fp8 dims. Both are wrong.
+
+Reality (from vllm/.../deepseek_v4_attention.py:170-171 and the fused
+qnorm-rope-kv-insert kernel header):
+    HEAD_DIM = 512                           # full Q/K head_dim
+    ROPE_DIM = 64                            # = config.qk_rope_head_dim
+    NOPE_DIM = HEAD_DIM - ROPE_DIM = 448
+  RoPE is applied IN PLACE to the slice [NOPE_DIM, HEAD_DIM) of the same
+  512-wide head. Q is [N, H=128, 512] bf16. The K cache stores 448 fp8 (nope
+  half of the latent) + 64 bf16 (rope half of the latent), per token.
+
+Change:
+  helpers.h:
+    D_NOPE = 448            (was 512)
+    D_Q stays 512           (= D_NOPE + D_ROPE)  -- not 576
+  Derived consts pick this up automatically:
+    SCORE_K_BLOCKS = D_NOPE / 32 : 16 -> 14    (two fewer QK MMA tiles)
+    Smem latent[NUM_BUFS][TILE_KV*D_NOPE] shrinks by 16 KB per buf
+    q_sw128[B_H*D_NOPE], o_buf[B_H*D_V] reduce accordingly
+  D_V: confirm against vllm. V comes from the same 512-dim latent in
+  matrix-absorbed MLA, so D_V most likely stays 512 even though D_NOPE=448
+  for the QK reduction. (Re-check `mla_attn(q, kv, ...)` call path.)
+  TMA descriptor strides for tma_Q_sw128 and tma_Kc must be regenerated
+  host-side with the new dim.
+
+
+Fix 2: QUANT_TILE is 64, not 128
+--------------------------------
+Issue:
+  helpers.h has QUANT_TILE = 128 and SCALES_PER_TOKEN = D_NOPE/128 = 4.
+  The model's actual cache uses ue8m0 scales per 64-channel block, not 128.
+
+Reality (from csrc/fused_deepseek_v4_qnorm_rope_kv_insert_kernel.cu lines
+60-67):
+    constexpr int kQuantBlock = 64;
+    constexpr int kNumQuantBlocks = kNopeDim / kQuantBlock;     // 7
+    constexpr int kScaleBytesPerToken = kNumQuantBlocks + 1;    // 8 (7+pad)
+  Per cached token: 448 fp8 nope + 128 bytes bf16 rope (=64 dims*2B) + 8
+  scale bytes (7 real, 1 pad for alignment).
+
+Change:
+  helpers.h:
+    QUANT_TILE = 64                                 (was 128)
+    SCALES_PER_TOKEN = D_NOPE / QUANT_TILE = 7      (was 4)
+  Allocate room for the +1 pad byte in the cache tile (kernel only reads 7
+  real scales; pad is for byte alignment in vLLM's packed page).
+
+  Scale replication for tcgen05 mxf8f6f4 (scale_vec::1X / block-32):
+  hardware wants one ue8m0 byte per 32 K-elements; cache stores one per 64.
+  Replication factor is QUANT_TILE/32:
+    REPLIC = QUANT_TILE / 32 : 4 -> 2       (kernel.cu:440, 469)
+    SPR    = (D_NOPE/QUANT_TILE) * REPLIC : 16 -> 14
+  The replication loop at kernel.cu:469 (`for (int r = 0; r < REPLIC; ++r)`)
+  now writes into 2 consecutive scale slots instead of 4.
+
+
+Fix 3: cache layout — separate buffers vs vLLM's packed page
+-----------------------------------------------------------
+Issue:
+  params.h exposes Kc, Kc_scales, Kc_rope as three separate gmem pointers
+  with their own TMA descriptors. vLLM stores everything in one uint8 paged
+  cache per layer, packed as:
+      [0,        bs*576):           token data — 448 fp8 + 128 bf16 each
+      [bs*576,   bs*576 + bs*8):    UE8M0 scales — 7 real + 1 pad per token
+  where bs = block_size.
+
+Reality (kernel header lines 26-29; attention.py:430-446 uses
+swa_kv_cache.view(N, -1) and passes a single 2D buffer to
+fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert).
+
+Change (decision needed):
+  Either
+    (a) keep separate Kc/Kc_scales/Kc_rope ptrs and write our own kv-insert
+        kernel that splits vLLM's packed page on the host side before TMA, or
+    (b) rewrite the TMA descriptors to stride into one packed uint8 buffer
+        with the layout above so we can interop with vLLM's KV cache pages
+        directly (much better — lets us drop into vLLM's runtime).
+  Either way the on-disk byte layout is fixed by the model; pick (b) if we
+  want to be a drop-in replacement for FlashMLA in vLLM.
+
+
+Fix 4: PV path stubs
+--------------------
+Issue:
+  Several functions in kernel.cu are no-op stubs. Until they're filled in,
+  PV cannot run end-to-end:
+    - store_softmax_operand_for_value (kernel.cu:276) — needs to convert the
+      fp32 softmax weights to fp8 S^T in smem.u.kv.softmax[buf] and stage
+      e8m0 scales into VALUE_SCALE_B.
+    - rescale_o_accum_if_needed (kernel.cu:285) — FlashMLA-style rescale of
+      O in TMEM when rolling max jumps.
+    - tok_reduce_x32 (kernel.cu:183) — wg0 token-reduce primitive for the
+      2SM M=128 score split (still TODO per the inline comment).
+    - compress_branch_warp (kernel.cu:640) — empty.
+
+Reality:
+  vLLM/FlashMLA SM100 reference: csrc/sm100/decode/sparse/ in FlashMLA shows
+  the equivalent S->fp8 cast and scale-staging path; the bf16->fp8 cast must
+  use the same e8m0 ceil-pow2 recipe as our K cache (helpers.h
+  f32_to_e8m0_rp / cvt.rp.satfinite.ue8m0x2.f32) so the MMA scales line up.
+
+Change:
+  Implement each stub. Strictly orthogonal to Fixes 1-3, but Fixes 1-3 must
+  land first because the dim/tile constants flow through into the PV scale
+  layout.
+
+
+Summary of one-line const changes (helpers.h)
+---------------------------------------------
+    D_NOPE          : 512 -> 448
+    D_Q             : 576 -> 512   (= D_NOPE + D_ROPE)
+    QUANT_TILE      : 128 -> 64
+    SCALES_PER_TOKEN: 4 -> 7       (cache stores +1 pad byte = 8 bytes)
+    SCORE_K_BLOCKS  : 16 -> 14     (auto, = D_NOPE / 32)
+    REPLIC (kernel.cu:440) : 4 -> 2
+    SPR    (kernel.cu:441) : 16 -> 14
