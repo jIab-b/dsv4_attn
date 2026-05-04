@@ -202,6 +202,14 @@ def cmd_smoke(args) -> int:
     return rc
 
 
+def cmd_compile(_args) -> int:
+    """CPU-only nvcc smoke compile of the hca kernel TU. No GPU needed."""
+    import subprocess
+    cmd = [sys.executable, str(ROOT / "hca" / "compile.py")]
+    print(" ".join(cmd))
+    return subprocess.run(cmd).returncode
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="bench", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -210,6 +218,7 @@ def main() -> int:
     sub.add_parser("list", help="list variants and candidates")
     sub.add_parser("selftest", help="local CPU sanity check")
     sub.add_parser("smoke", help="run all eager candidates on Modal B200")
+    sub.add_parser("compile", help="local CPU-only nvcc compile smoke")
 
     pb = sub.add_parser("bench", help="run one candidate on Modal B200")
     pb.add_argument("--variant", required=True, choices=("hca", "csa"))
@@ -232,8 +241,12 @@ def main() -> int:
                     help="candidate NAME with VARIANT='hca_decode'")
     pd.add_argument("--iters", type=int, default=20)
     pd.add_argument("--warmup", type=int, default=5)
-    pd.add_argument("--dtype", default="fp8", choices=("fp8", "fp32"),
-                    help="fp8: faithful (K quantized); fp32: oracle")
+    pd.add_argument("--dtype", default="fp8",
+                    choices=("fp8", "fp32", "fp8_dequant", "fp8_rope"),
+                    help="fp8: kernel-faithful (Q-nope + K-nope + S quanted, "
+                         "rope stays bf16); fp8_rope: also quant rope (A/B "
+                         "diagnostic); fp8_dequant: bf16 Q × dequant K; "
+                         "fp32: oracle")
     pd.add_argument("--shape", action="append", metavar="K=V",
                     help="override an HCADecodeSpec field (repeatable)")
     pd.add_argument("--seed", type=int, default=0)
@@ -249,6 +262,8 @@ def main() -> int:
         return cmd_selftest(args)
     if args.cmd == "smoke":
         return cmd_smoke(args)
+    if args.cmd == "compile":
+        return cmd_compile(args)
     if args.cmd == "bench":
         return cmd_bench(args)
     if args.cmd == "decode":

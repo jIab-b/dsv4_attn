@@ -32,12 +32,23 @@ image = (
         "nvidia/cuda:12.9.1-devel-ubuntu24.04", add_python="3.11"
     )
     .apt_install("git", "ca-certificates")
-    # cu128 wheel: shipped with Blackwell (sm_100) since torch 2.7. Triton
-    # bundled.
-    .pip_install("numpy", "ninja", "torch>=2.7")
+    .pip_install("numpy", "torch>=2.7")
+    # Vendor cutlass + deep_gemm headers (referenced by hca/sm100/helpers.h).
+    .run_commands(
+        "git clone --depth=1 https://github.com/NVIDIA/cutlass.git /root/_cutlass && "
+        "cp -r /root/_cutlass/include/* /usr/local/include/ && "
+        "cp -r /root/_cutlass/tools/util/include/* /usr/local/include/ || true",
+        "git clone --depth=1 https://github.com/deepseek-ai/DeepGEMM.git /root/_dg && "
+        "mkdir -p /usr/local/include/deep_gemm && "
+        "( cp -r /root/_dg/deep_gemm/include/deep_gemm/* /usr/local/include/deep_gemm/ 2>/dev/null || "
+        "  cp -r /root/_dg/include/deep_gemm/* /usr/local/include/deep_gemm/ 2>/dev/null || "
+        "  cp -r /root/_dg/csrc/* /usr/local/include/deep_gemm/ 2>/dev/null || true )",
+    )
     .add_local_dir(LOCAL_BENCH,   remote_path=str(REMOTE_BENCH),   copy=True)
     .add_local_dir(LOCAL_KERNELS, remote_path=str(REMOTE_KERNELS), copy=True)
     .workdir(str(REMOTE_ROOT))
+    # Compile the kernel here (nvcc only — no GPU touched). Cached by Modal.
+    .run_commands("cd /root/hca && python compile.py")
 )
 
 

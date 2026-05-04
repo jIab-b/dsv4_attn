@@ -89,6 +89,15 @@ def _quant_kv_to_fp8(K_bf16, *, tile: int):
     return fp8, e_byte                                # [..., c], [..., nb]
 
 
+def _quant_rope_to_fp8(R_bf16, *, tile: int = 64):
+    """Same recipe as `_quant_kv_to_fp8` but applied to the n_rope tail.
+
+    Default tile = full rope width (one scale per row). Hypothetical: the
+    real kernel keeps rope as bf16, this is for diagnostic A/B benches.
+    """
+    return _quant_kv_to_fp8(R_bf16, tile=tile)
+
+
 # ── RoPE (matches reference.apply_rope, for decoding a single q_pos) ────
 
 
@@ -154,11 +163,25 @@ def build_decode_inputs(spec: HCADecodeSpec, *, device, generator, dtype: str):
     if dtype == "fp32":
         Kc_q,   Kc_s   = Kc_nope,   None
         Kswa_q, Kswa_s = Kswa_nope, None
-    elif dtype == "fp8":
+    elif dtype in ("fp8", "fp8_dequant", "fp8_rope"):
         Kc_q,   Kc_s   = _quant_kv_to_fp8(Kc_nope,   tile=spec.quant_tile)
         Kswa_q, Kswa_s = _quant_kv_to_fp8(Kswa_nope, tile=spec.quant_tile)
     else:
-        raise ValueError(f"dtype must be fp32 or fp8: {dtype!r}")
+        raise ValueError(f"dtype must be fp32 / fp8 / fp8_dequant / fp8_rope: {dtype!r}")
+
+    # `fp8_rope` mode: also round-trip rope through fp8 to measure the cost.
+    if dtype == "fp8_rope":
+        Kc_rope_fp8, Kc_rope_s     = _quant_rope_to_fp8(Kc_rope,   tile=n_rope)
+        Kswa_rope_fp8, Kswa_rope_s = _quant_rope_to_fp8(Kswa_rope, tile=n_rope)
+        # Dequant in-place so the input still presents bf16 (the kernel reads
+        # bf16 rope); only the *values* now reflect the round-trip loss.
+        def _deq(fp8, s):
+            import torch
+            s_f32 = (s.to(torch.uint8).to(torch.int32) << 23).view(torch.float32)
+            bf = fp8.to(torch.float32) * s_f32.unsqueeze(-1)
+            return bf.to(torch.bfloat16)
+        Kc_rope   = _deq(Kc_rope_fp8,   Kc_rope_s)
+        Kswa_rope = _deq(Kswa_rope_fp8, Kswa_rope_s)
 
     return HCADecodeInputs(
         Q=Q_bf16,

@@ -436,6 +436,32 @@ def _dequant_block_fp8(latent_fp8: torch.Tensor,
     return bf.view(*lead, c)
 
 
+def _quant_dequant_e4m3_e8m0(
+    x_bf16: torch.Tensor, *, tile: int
+) -> torch.Tensor:
+    """Round-trip x through (e8m0 absmax/448, e4m3 cast) and back to fp32.
+
+    Matches the kernel's per-(row, tile) quant recipe (`f32_to_e8m0_rp` +
+    `cvt.rn.satfinite.e4m3x2.f32`) and the dequant fold above. Used to inject
+    the same fp8-rounding loss into the reference path.
+    """
+    *lead, c = x_bf16.shape
+    assert c % tile == 0
+    nb = c // tile
+    x = x_bf16.view(*lead, nb, tile)
+    absmax = x.abs().amax(dim=-1)
+    ratio  = absmax.to(torch.float32) / 448.0
+    bits = ratio.contiguous().view(torch.int32)
+    e    = ((bits >> 23) & 0xff)
+    bump = ((bits & 0x7fffff) != 0).to(torch.int32)
+    e_byte = (e + bump).clamp_(0, 254)
+    dequant = (e_byte.to(torch.int32) << 23).view(torch.float32)  # 2^(byte-127)
+    scaled  = x.to(torch.float32) / dequant.unsqueeze(-1)
+    fp8     = scaled.clamp_(-448.0, 448.0).to(torch.float8_e4m3fn)
+    out_f32 = fp8.to(torch.float32) * dequant.unsqueeze(-1)
+    return out_f32.view(*lead, c)
+
+
 def hca_decode_forward(
     inp: HCADecodeInputs,
     *,
@@ -444,18 +470,22 @@ def hca_decode_forward(
     """One decode step; returns O [B, n_h, c] in bf16.
 
     Modes:
-      dtype="fp32" : everything in fp32; oracle.
-      dtype="fp8"  : K dequanted via the same bf16 path the kernel uses; QK
-                     and PV math then in fp32 for the accumulator (kernel
-                     also accumulates fp32). Output narrowed to bf16.
+      dtype="fp32"          : everything in fp32; oracle.
+      dtype="fp8_dequant"   : K dequanted to bf16; Q stays bf16; fp32 accumulator.
+                              (== old "fp8" path; bf16×dequant-fp8 numerics.)
+      dtype="fp8"           : symmetric fp8×fp8 — Q-nope round-tripped through
+                              e4m3+e8m0, S round-tripped before PV. Matches the
+                              kernel's mxf8f6f4×mxf8f6f4 contract.
     """
-    assert dtype in ("fp32", "fp8")
+    assert dtype in ("fp32", "fp8", "fp8_dequant", "fp8_rope")
+    quant_q_rope = (dtype == "fp8_rope")
+    if dtype == "fp8_rope":
+        dtype = "fp8"
     Q = inp.Q
     B, n_h, dq = Q.shape
     c = inp.Kc.shape[-1]
     n_rope = dq - c
 
-    # Reconstruct full K (nope + rope) for both legs in bf16.
     if dtype == "fp32":
         Kc_nope   = inp.Kc.float()
         Kswa_nope = inp.Kswa.float()
@@ -464,24 +494,49 @@ def hca_decode_forward(
         Kc_nope   = _dequant_block_fp8(inp.Kc,   inp.Kc_scales).float()
         Kswa_nope = _dequant_block_fp8(inp.Kswa, inp.Kswa_scales).float()
 
+    # Symmetric path: round-trip Q-nope through e4m3+e8m0 to inject the same
+    # rounding the score MMA sees on operand B.
+    if dtype == "fp8":
+        QT = 128  # quant tile; matches HCADecodeSpec.quant_tile
+        Q_nope = _quant_dequant_e4m3_e8m0(Q[..., :c], tile=QT)
+        Q_rope = Q[..., c:].float()
+        if quant_q_rope:
+            Q_rope = _quant_dequant_e4m3_e8m0(Q_rope.to(torch.bfloat16),
+                                              tile=n_rope)
+        Q_full = torch.cat([Q_nope, Q_rope], dim=-1)
+    else:
+        Q_full = Q.float()
+
     Kc_full   = torch.cat([Kc_nope,   inp.Kc_rope.float()],   dim=-1)
     Kswa_full = torch.cat([Kswa_nope, inp.Kswa_rope.float()], dim=-1)
     KV = torch.cat([Kc_full, Kswa_full], dim=1)             # [B, M+W, c+n_rope]
-    n_kv = KV.shape[1]
 
-    # Logits in fp32 (matches kernel's fp32 P accumulator).
-    logits = torch.einsum("bhc,bkc->bhk", Q.float(), KV) * float(inp.sm_scale)
+    logits = torch.einsum("bhc,bkc->bhk", Q_full, KV) * float(inp.sm_scale)
 
-    # Sink-augmented softmax (Eq 27).
     lmax = logits.amax(dim=-1, keepdim=True)
     lmax = torch.where(torch.isfinite(lmax), lmax, torch.zeros_like(lmax))
     exp_l = torch.exp(logits - lmax)
     sink_shift = inp.sink_logits.float().reshape(1, n_h) - lmax.squeeze(-1)
     denom = exp_l.sum(dim=-1, keepdim=True) + torch.exp(sink_shift).unsqueeze(-1)
-    attn = exp_l / denom
+    attn = exp_l / denom                                    # [B, n_h, n_kv]
 
-    # PV: only the c-dim latent (matrix-absorbed V).
-    o = torch.einsum("bhk,bkc->bhc", attn, KV[..., :c])
+    if dtype == "fp8":
+        # S quant: per-(head, K=32 token-chunk) absmax, e4m3, dequant.
+        S_pad = attn
+        nk = S_pad.shape[-1]
+        K = 32
+        if nk % K != 0:
+            pad = K - (nk % K)
+            S_pad = torch.cat(
+                [S_pad, torch.zeros(*S_pad.shape[:-1], pad, dtype=S_pad.dtype,
+                                    device=S_pad.device)], dim=-1)
+        S_q = _quant_dequant_e4m3_e8m0(S_pad.to(torch.bfloat16), tile=K)
+        S_q = S_q[..., :nk]
+        attn = S_q
+
+    # V = K-nope only.
+    o = torch.einsum("bhk,bkc->bhc", attn.float(),
+                     torch.cat([Kc_nope, Kswa_nope], dim=1))
     return o.to(torch.bfloat16)
 
 

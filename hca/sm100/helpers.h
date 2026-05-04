@@ -170,10 +170,16 @@ void mbar_expect(uint64_t& mbar, int tx_bytes) {
                  :: "r"(addr), "r"(tx_bytes));
 }
 
+// 500 ms budget at ~2 GHz boost on B200; trap if we wait longer.
+#ifndef HCA_MBAR_TIMEOUT_CYCLES
+#define HCA_MBAR_TIMEOUT_CYCLES 1000000000ULL
+#endif
+
 __device__ __forceinline__
 void mbar_wait(uint64_t& mbar, int phase) {
     uint32_t addr = smem_to_uint(&mbar);
     int done = 0;
+    uint64_t start = clock64();
     while (!done) {
         asm volatile(
             "{\n"
@@ -183,6 +189,9 @@ void mbar_wait(uint64_t& mbar, int phase) {
             "}\n"
             : "=r"(done) : "r"(addr), "r"(phase)
         );
+        if (!done && (clock64() - start) > HCA_MBAR_TIMEOUT_CYCLES) {
+            __trap();
+        }
     }
 }
 
@@ -199,6 +208,7 @@ __device__ __forceinline__
 void mbar_wait_state(uint64_t& mbar, uint64_t state) {
     uint32_t addr = smem_to_uint(&mbar);
     int done = 0;
+    uint64_t start = clock64();
     while (!done) {
         asm volatile(
             "{\n"
@@ -208,6 +218,9 @@ void mbar_wait_state(uint64_t& mbar, uint64_t state) {
             "}\n"
             : "=r"(done) : "r"(addr), "l"(state) : "memory"
         );
+        if (!done && (clock64() - start) > HCA_MBAR_TIMEOUT_CYCLES) {
+            __trap();
+        }
     }
 }
 
@@ -318,6 +331,33 @@ void tma_load_3d(const CUtensorMap* desc,
 __device__ __forceinline__
 uint32_t tmem_addr(uint32_t base, int col, int lane = 0) {
     return base + (uint32_t(lane) << 16) + uint32_t(col);
+}
+
+// 256 columns covers O(128) + P(64) + 4×scale(16) = 256.
+constexpr int TMEM_NUM_COLS = 256;
+
+__device__ __forceinline__
+void tcgen05_alloc(uint32_t* smem_dst, int n_cols) {
+    uint32_t addr = smem_to_uint(smem_dst);
+    asm volatile(
+        "tcgen05.alloc.cta_group" TCGEN05_CTA_GROUP ".sync.aligned.shared::cta.b32 [%0], %1;"
+        :: "r"(addr), "n"(TMEM_NUM_COLS) : "memory");
+    (void)n_cols;
+}
+
+__device__ __forceinline__
+void tcgen05_relinquish_alloc_permit() {
+    asm volatile(
+        "tcgen05.relinquish_alloc_permit.cta_group" TCGEN05_CTA_GROUP ".sync.aligned;"
+        ::: "memory");
+}
+
+__device__ __forceinline__
+void tcgen05_dealloc(uint32_t base, int n_cols) {
+    asm volatile(
+        "tcgen05.dealloc.cta_group" TCGEN05_CTA_GROUP ".sync.aligned.b32 %0, %1;"
+        :: "r"(base), "n"(TMEM_NUM_COLS) : "memory");
+    (void)n_cols;
 }
 
 __device__ __forceinline__ void tcgen05_fence_before_mma() {
