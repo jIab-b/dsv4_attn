@@ -185,12 +185,34 @@ __device__ __forceinline__ void consume_score(
     mbar_arrive(smem.mbar_p_consumed[pipe.buf]);
 }
 
-// Phase 2: hand off to value MMA. TODO: rescale O TMEM by curr_l[h] (= alpha)
-// when iter > 0, gated by mbar_sv_done[last_value_buf].
+// Phase 2: rescale O TMEM by alpha[h] (= curr_l[h] after update_rolling),
+// then hand off to value MMA. First tile skips the wait/rescale since no
+// prior value MMA has fired and O is not yet accumulated.
 __device__ __forceinline__ void value_release(
-    const HcaParams&, const KernelState&, Smem& smem,
+    const HcaParams&, const KernelState& ks, Smem& smem,
     SoftmaxPipelineState& pipe
 ) {
+    if (pipe.released_value) {
+        mbar_wait(smem.mbar_sv_done[pipe.last_value_buf], pipe.last_value_phase);
+        tcgen05_fence_after_mma();
+
+        const int row = threadIdx.x & (B_H - 1);
+        const float alpha = smem.curr_l[row];
+
+        for (int chunk = 0; chunk < (D_V / 2) / 64; ++chunk) {
+            const int tmem_col = tmem_cols::O + chunk * 64;
+            float o0[32], o1[32];
+            tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col),      o0);
+            tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col + 32), o1);
+            for (int i = 0; i < 32; ++i) {
+                o0[i] *= alpha;
+                o1[i] *= alpha;
+            }
+            tcgen05_st_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col),      o0);
+            tcgen05_st_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col + 32), o1);
+        }
+    }
+
     mbar_arrive(smem.mbar_so_ready[pipe.buf]);
     advance_softmax_pipeline(pipe);
 }

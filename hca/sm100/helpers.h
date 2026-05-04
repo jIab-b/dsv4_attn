@@ -339,6 +339,10 @@ __device__ __forceinline__ void tcgen05_wait_ld() {
     asm volatile("tcgen05.wait::ld.sync.aligned;" ::: "memory");
 }
 
+__device__ __forceinline__ void tcgen05_wait_st() {
+    asm volatile("tcgen05.wait::st.sync.aligned;" ::: "memory");
+}
+
 __device__ __forceinline__
 void tcgen05_ld_32x32b_x32(uint32_t taddr, float (&out)[32]) {
     uint32_t r[32];
@@ -361,6 +365,29 @@ void tcgen05_ld_32x32b_x32(uint32_t taddr, float (&out)[32]) {
     for (int i = 0; i < 32; ++i) {
         out[i] = __uint_as_float(r[i]);
     }
+}
+
+__device__ __forceinline__
+void tcgen05_st_32x32b_x32(uint32_t taddr, const float (&in)[32]) {
+    uint32_t r[32];
+    #pragma unroll
+    for (int i = 0; i < 32; ++i) r[i] = __float_as_uint(in[i]);
+    asm volatile(
+        "tcgen05.st.sync.aligned.32x32b.x32.b32 [%0], "
+        "{%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,"
+        " %17,%18,%19,%20,%21,%22,%23,%24,%25,%26,%27,%28,%29,%30,%31,%32};"
+        :: "r"(taddr),
+           "r"(r[0]),  "r"(r[1]),  "r"(r[2]),  "r"(r[3]),
+           "r"(r[4]),  "r"(r[5]),  "r"(r[6]),  "r"(r[7]),
+           "r"(r[8]),  "r"(r[9]),  "r"(r[10]), "r"(r[11]),
+           "r"(r[12]), "r"(r[13]), "r"(r[14]), "r"(r[15]),
+           "r"(r[16]), "r"(r[17]), "r"(r[18]), "r"(r[19]),
+           "r"(r[20]), "r"(r[21]), "r"(r[22]), "r"(r[23]),
+           "r"(r[24]), "r"(r[25]), "r"(r[26]), "r"(r[27]),
+           "r"(r[28]), "r"(r[29]), "r"(r[30]), "r"(r[31])
+        : "memory"
+    );
+    tcgen05_wait_st();
 }
 
 ///*****************************************************************************
