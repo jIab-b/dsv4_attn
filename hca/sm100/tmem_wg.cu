@@ -291,27 +291,23 @@ __device__ __forceinline__ void release_value_mma(
     advance_softmax_pipeline(pipe);
 }
 
-__device__ __forceinline__ void consume_score_tile(
-    const HcaParams& p,
-    const KernelState& ks,
-    Smem& smem,
-    int tile_start,
-    int tile_end,
-    SoftmaxPipelineState& pipe,
-    int& softmax_phase
+__device__ __forceinline__ void consume_score(
+    const HcaParams& p, const KernelState& ks, Smem& smem,
+    int tile_start, int tile_end,
+    SoftmaxPipelineState& pipe
 ) {
-    wait_score_mma(smem, pipe);
-    compute_warp_ml(p, ks, smem, tile_start, tile_end);
-    softmax_wg_sync(smem, softmax_phase);
-    dsmem_reduce(ks, smem);
+    mbar_wait(smem.mbar_qk_done[pipe.buf], pipe.phase);
+    tcgen05_fence_after_mma();
 
-    float score[32];
-    load_score_tile(p, smem, tile_start, tile_end, score);
-    SoftmaxTileUpdate update = update_softmax_tile(smem, score, softmax_phase);
+    for (int it = 0; it < 2; ++it) {
+        float head_score[32];
+        load_and_reduce(p, ks, smem, tile_start, tile_end, it, head_score);
+        dsmem_reduce(ks, smem, it);
+        update_rolling(smem, it);
+        scale_and_store(smem, pipe.buf, it, head_score);
+    }
 
-    store_softmax_operand_for_value(smem, score, update);
-    rescale_o_accum_if_needed(smem, pipe, update);
-    release_value_mma(smem, pipe);
+    mbar_arrive(smem.mbar_p_consumed[pipe.buf]);
 }
 
 __device__ __forceinline__ void value_epilogue_final(
@@ -368,19 +364,19 @@ __device__ __forceinline__ void value_epilogue_final(
 __device__ __inline__ void softmax_warpgroup(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
-    init_softmax_accum(smem);
-    int softmax_phase = 0;
-    SoftmaxPipelineState pipe;
+    init_rolling_state(smem);
+    SoftmaxPipelineState pipe{};
 
-    auto run_score_tiles = [&](int r_start, int r_end) {
+    auto run = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
-            consume_score_tile(p, ks, smem, r, r_end, pipe, softmax_phase);
+            consume_score(p, ks, smem, r, r_end, pipe);
+            value_release(p, ks, smem,         pipe);
         }
     };
+    run(ks.compressed_start, ks.compressed_end);
+    run(ks.swa_start,        ks.swa_end);
 
-    run_score_tiles(ks.compressed_start, ks.compressed_end);
-    run_score_tiles(ks.swa_start,        ks.swa_end);
-    value_epilogue_final(p, ks, smem, pipe);
+    epilogue_write_O(p, ks, smem, pipe);
 }
 
 ///*****************************************************************************
