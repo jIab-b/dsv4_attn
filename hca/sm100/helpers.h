@@ -92,6 +92,7 @@ struct alignas(16) Smem {
     uint64_t mbar_rope_ready[NUM_BUFS];
     uint64_t mbar_raw_ready [NUM_BUFS];   // fp8 latent + scales landed
     uint64_t mbar_qk_done   [NUM_BUFS];
+    uint64_t mbar_p_consumed[NUM_BUFS];   // softmax wg done reading P TMEM
     uint64_t mbar_so_ready  [NUM_BUFS];
     uint64_t mbar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
 
@@ -619,6 +620,7 @@ void init_smem(Smem& smem) {
             mbar_init(smem.mbar_rope_ready[i], 1);
             mbar_init(smem.mbar_raw_ready [i], 1);
             mbar_init(smem.mbar_qk_done   [i], 1);
+            mbar_init(smem.mbar_p_consumed[i], 128);
             mbar_init(smem.mbar_so_ready  [i], 128);
             mbar_init(smem.mbar_sv_done   [i], 1);
         }
