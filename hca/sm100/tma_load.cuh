@@ -38,8 +38,8 @@ void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
     auto* q_scales = reinterpret_cast<__nv_fp8_e8m0*>(
         reinterpret_cast<char*>(&smem.u.qo.o_buf[0]) + B_H * D_NOPE);
 
-    constexpr int REPLIC = QUANT_TILE / 32;                     // 4
-    constexpr int SPR    = (D_NOPE / QUANT_TILE) * REPLIC;      // 16
+    constexpr int REPLIC = QUANT_TILE / 32;                     // 2 (post-flip)
+    constexpr int SPR    = (D_NOPE / QUANT_TILE) * REPLIC;      // 14 (post-flip)
     const int kb = ks.warp_idx;
 
     #pragma unroll 4

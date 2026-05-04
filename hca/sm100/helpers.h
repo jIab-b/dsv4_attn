@@ -6,19 +6,6 @@
 #include <cstdint>
 #include <type_traits>
 
-///*****************************************************************************
-///*** cute / cutlass includes
-///*****************************************************************************
-#include <cutlass/bfloat16.h>
-#include <cutlass/arch/barrier.h>
-#include <cutlass/float8.h>
-#include <cute/atom/mma_traits_sm100.hpp>
-#include <cute/tensor.hpp>
-#include <deep_gemm/common/sm100_utils.cuh>
-///*****************************************************************************
-///*** end cute / cutlass includes
-///*****************************************************************************
-
 #include "../params.h"
 
 namespace dsv4::hca::sm100 {
@@ -30,23 +17,23 @@ namespace dsv4::hca::sm100 {
 constexpr int B_H         = 64;
 constexpr int TILE_KV     = 128;
 constexpr int NUM_BUFS    = 2;
-constexpr int D_NOPE      = 512;
+constexpr int D_NOPE      = 448;               // = HEAD_DIM(512) - D_ROPE(64), per vLLM
 constexpr int D_ROPE      = 64;
-constexpr int D_V         = 512;
-constexpr int D_Q         = D_NOPE + D_ROPE;   // 576
+constexpr int D_V         = 512;               // value-MMA M-axis cover; V is K-nope (448) zero-padded to 512
+constexpr int D_Q         = D_NOPE + D_ROPE;   // 512
 constexpr int M_PRIME     = 128;
 constexpr int W_SWA       = 128;
-constexpr int QUANT_TILE  = 128;               // e8m0 group size for fp8 cache
-constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 4
+constexpr int QUANT_TILE  = 64;                // e8m0 group: 1 scale / 64 channels
+constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 7 (cache pads to 8 on disk)
 constexpr int NUM_THREADS = 256;               // 2 warpgroups: softmax, mma+producers
 constexpr int MMA_MXF8_K  = 32;
 constexpr int SCORE_M     = TILE_KV;           // KV tokens
 constexpr int SCORE_N     = B_H;               // heads
-constexpr int VALUE_M     = 256;               // value dims per value-MMA chunk
+constexpr int VALUE_M     = 256;               // value dims per value-MMA chunk (V padded to 512)
 constexpr int VALUE_N     = B_H;               // heads
-constexpr int SCORE_K_BLOCKS = D_NOPE / MMA_MXF8_K;
-constexpr int VALUE_DIM_BLOCKS = D_V / VALUE_M;
-constexpr int VALUE_TOKEN_BLOCKS = TILE_KV / MMA_MXF8_K;
+constexpr int SCORE_K_BLOCKS = D_NOPE / MMA_MXF8_K;            // 14
+constexpr int VALUE_DIM_BLOCKS = D_V / VALUE_M;                // 2
+constexpr int VALUE_TOKEN_BLOCKS = TILE_KV / MMA_MXF8_K;       // 4
 
 // tcgen05 cta_group used kernel-wide (must be the same for every tcgen05 op)
 #define TCGEN05_CTA_GROUP "::2"
@@ -473,30 +460,43 @@ __device__ __forceinline__ uint32_t f32x4_to_e4m3x4(const float (&v)[4]) {
 ///*** descriptor helpers
 ///*****************************************************************************
 
+// SMEM descriptor (PTX 9.7.16.4.1, Table 40). 14-bit fields hold (x>>4) of
+// 16-byte-aligned addresses/offsets. swizzle: 0=none, 2=128B, 4=64B, 6=32B.
 __device__ __forceinline__
-uint64_t make_kmajor_smem_desc(
-    const void* ptr,
-    uint32_t row_stride_elems,
-    cute::UMMA::LayoutType layout_type = cute::UMMA::LayoutType::SWIZZLE_32B
+uint64_t make_smem_desc(
+    const void* smem_ptr,
+    uint32_t leading_byte_offset,
+    uint32_t stride_byte_offset,
+    uint32_t swizzle
 ) {
-    // K-major mxf8 tiles are K=32 bytes wide; the descriptor stride hops
-    // between 8-row MN atoms in the original row-strided staging buffer.
-    auto* smem_ptr = const_cast<void*>(ptr);
-    const uint32_t stride_byte_offset = 8u * row_stride_elems;
-    return static_cast<uint64_t>(
-        deep_gemm::sm100::make_smem_desc(
-            layout_type, smem_ptr, stride_byte_offset, /*leading_byte_offset=*/0));
+    uint32_t addr = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
+    uint64_t d = 0;
+    d |=  uint64_t((addr                  >> 4) & 0x3FFFu);
+    d |= (uint64_t((leading_byte_offset   >> 4) & 0x3FFFu)) << 16;
+    d |= (uint64_t((stride_byte_offset    >> 4) & 0x3FFFu)) << 32;
+    d |=  uint64_t(1) << 46;                          // fixed 0b001
+    d |= (uint64_t(swizzle) & 0x7u) << 61;
+    return d;
 }
 
-template<int M, int N,
-         cute::UMMA::Major AMajor = cute::UMMA::Major::K,
-         cute::UMMA::Major BMajor = cute::UMMA::Major::K>
 __device__ __forceinline__
-uint64_t make_mxf8_runtime_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return cute::UMMA::make_runtime_instr_desc_block_scaled<
-        cutlass::float_e4m3_t, cutlass::float_e4m3_t,
-        float, cutlass::float_ue8m0_t,
-        M, N, AMajor, BMajor>(scale_a_tmem, scale_b_tmem);
+uint64_t make_kmajor_smem_desc(const void* ptr, uint32_t row_stride_elems) {
+    return make_smem_desc(ptr, /*leading=*/0,
+                          /*stride=*/8u * row_stride_elems,
+                          /*swizzle 32B=*/6u);
+}
+
+// Instruction descriptor for kind::mxf8f6f4 (PTX 9.7.16.4.2, Table 43).
+// atype/btype = e4m3 (=0), scale type = ue8m0 (=1), dense, no transpose,
+// SFA_ID = SFB_ID = 0 (caller iterates K-blocks via separate idesc updates).
+template<int M, int N>
+__device__ __forceinline__
+uint32_t make_mxf8_idesc() {
+    static_assert(M == 128 || M == 256, "mxf8f6f4 2SM requires M in {128,256}");
+    static_assert(N % 8 == 0 && N <= 256, "N must be multiple of 8, <=256");
+    constexpr uint32_t n_field = (N >> 3) & 0x3F;     // bits 17-22
+    constexpr uint32_t m_field = (M >> 7) & 0x3;      // bits 27-28
+    return (n_field << 17) | (1u << 23) | (m_field << 27);
 }
 
 // Score: A=K[token, dim], B=Q^T[dim, head], D=P[token, head].
@@ -514,11 +514,7 @@ uint64_t make_score_b_sdesc(const Smem& smem, int k_block) {
 }
 
 __device__ __forceinline__
-uint32_t make_score_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return uint32_t(
-        make_mxf8_runtime_idesc<SCORE_M, SCORE_N>(
-            scale_a_tmem, scale_b_tmem) >> 32);
-}
+uint32_t make_score_idesc() { return make_mxf8_idesc<SCORE_M, SCORE_N>(); }
 
 // Value: A=V^T[value_dim, token], B=S[token, head], D=O^T[value_dim, head].
 // `latent` must be staged in V^T order before this descriptor is correct.
@@ -538,11 +534,7 @@ uint64_t make_value_b_sdesc(const Smem& smem, int buf, int token_block) {
 }
 
 __device__ __forceinline__
-uint32_t make_value_idesc(uint32_t scale_a_tmem, uint32_t scale_b_tmem) {
-    return uint32_t(
-        make_mxf8_runtime_idesc<VALUE_M, VALUE_N>(
-            scale_a_tmem, scale_b_tmem) >> 32);
-}
+uint32_t make_value_idesc() { return make_mxf8_idesc<VALUE_M, VALUE_N>(); }
 
 __device__ __forceinline__
 uint32_t score_scale_a_tmem(const Smem& smem) {
@@ -572,6 +564,9 @@ uint32_t value_scale_b_tmem(const Smem& smem) {
 ///*** mma helpers
 ///*****************************************************************************
 
+// Inline tcgen05.mma SS form for kind::mxf8f6f4 with block_scale scale_vec::1X
+// (PTX 9.7.16.10.9.1). Both A and B come from SMEM via 64-bit descriptors;
+// scales come from TMEM at scale_{a,b}_tmem.
 template<int M, int N>
 __device__ __forceinline__
 void tcgen05_mxf8_2sm_ss(
@@ -582,11 +577,18 @@ void tcgen05_mxf8_2sm_ss(
     uint32_t scale_b_tmem,
     bool accumulate
 ) {
-    const uint64_t idesc =
-        make_mxf8_runtime_idesc<M, N>(scale_a_tmem, scale_b_tmem);
-    deep_gemm::sm100::SM100_MMA_MXF8F6F4_2x1SM_SS::fma(
-        a_desc, b_desc, d_tmem, uint32_t(accumulate), idesc,
-        scale_a_tmem, scale_b_tmem);
+    const uint32_t idesc = make_mxf8_idesc<M, N>();
+    const uint32_t enable_in = accumulate ? 1u : 0u;
+    asm volatile(
+        "{\n"
+        ".reg .pred p;\n"
+        "setp.ne.u32 p, %6, 0;\n"
+        "tcgen05.mma.cta_group::2.kind::mxf8f6f4.block_scale.scale_vec::1X "
+        "[%0], %1, %2, %3, [%4], [%5], p;\n"
+        "}\n"
+        :: "r"(d_tmem), "l"(a_desc), "l"(b_desc), "r"(idesc),
+           "r"(scale_a_tmem), "r"(scale_b_tmem), "r"(enable_in)
+        : "memory");
 }
 
 // A thin 2SM mxf8 score issue. The caller must have staged K/Q scale factors

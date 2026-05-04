@@ -168,18 +168,20 @@ def cmd_decode(args) -> int:
             "ratio": res.ratio, "message": res.message,
         }
     else:
+        import modal
         from bench.modal import app, gpu_decode
         print(f"# decode on Modal B200 candidate={args.candidate} "
               f"dtype={args.dtype} overrides={overrides}")
-        with app.run():
-            result = gpu_decode.remote(
-                candidate_name=args.candidate,
-                spec_overrides=overrides or None,
-                iters=args.iters, warmup=args.warmup,
-                dtype=args.dtype,
-                flush_l2=not args.no_flush,
-                seed=args.seed,
-            )
+        with modal.enable_output():
+            with app.run():
+                result = gpu_decode.remote(
+                    candidate_name=args.candidate,
+                    spec_overrides=overrides or None,
+                    iters=args.iters, warmup=args.warmup,
+                    dtype=args.dtype,
+                    flush_l2=not args.no_flush,
+                    seed=args.seed,
+                )
 
     text = json.dumps(result, indent=2)
     print(text)

@@ -6,6 +6,7 @@
 
 #include "kernel.h"
 #include "helpers.h"
+#include "combine.h"
 
 namespace dsv4::hca::sm100 {
 

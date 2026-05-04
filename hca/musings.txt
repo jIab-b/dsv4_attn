@@ -1,0 +1,15 @@
+
+
+
+
+
+    for (int it = 0; it < 2; ++it) {
+        float head_score[32];
+        load_and_shuffle(p, ks, smem, tile_start, tile_end, it, head_score);
+        dsmem_reduce(ks, smem, it);
+        update_rolling(smem, it);
+        scale_and_store(ks, smem, pipe.buf, it, head_score);
+    }
+here , we load 32 x 32 [token , head] from tmem , -> shuffle down sync ( move all registers down
+to the base lane of the warp ) + shuffle xor sync (find the largett val) , and we have local
+ m , l max , sum -> store this as 32 , 4 in local smem , 

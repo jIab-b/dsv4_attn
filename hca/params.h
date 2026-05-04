@@ -35,7 +35,7 @@ struct HcaParams {
     __nv_bfloat16* __restrict__ Kswa_rope;      // [B, W=128, 64]
 
     // ---- Q / O for one decode step ----
-    __nv_bfloat16* __restrict__ Q;              // [B, 1, H=128, 576]
+    __nv_bfloat16* __restrict__ Q;              // [B, 1, H=128, 512]
     __nv_bfloat16* __restrict__ O;              // [B, 1, H=128, 512]
     float* __restrict__ partial_O;              // [split, B, H, 512] split-K output
     float* __restrict__ partial_lse;            // [split, B, H]      split-K log2 LSE
