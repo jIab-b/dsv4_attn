@@ -1,0 +1,290 @@
+====================================================================================================
+mHC / CSA / HCA-compressor / TopK kernels — prefill + decode, both runs
+====================================================================================================
+Source: nsys traces at 3k context (batch=8 bench loop) and ~31k context (batch=2 bench loop).
+Numbers are pct of total GPU kernel time within the 25s capture window of each run.
+"prefill" / "decode" labels follow the kernel-name suffix and instance-count fingerprint:
+  - *_prefill  fires only during prefill batches  (small inst count, comes in bursts)
+  - *_decode   fires per layer per decode step    (large inst count, ~constant rate)
+  - other      fires in BOTH prefill and decode   (shared infra)
+
+====================================================================================================
+1. mHC — MANIFOLD-CONSTRAINED HYPER-CONNECTIONS
+====================================================================================================
+
+mHC replaces the standard residual stream. Each transformer block sandwiches its compute
+between a "pre" projection onto a learned low-rank manifold and a "post" projection back.
+This is per-layer, per-token, fires in BOTH prefill and decode.
+
+  kernel                                       phase      3k run                   31k run
+  ---------------------------------------    ---------   ----------------------   --------------------
+  mhc_pre_big_fuse_with_norm_tilelang_kernel  both        4.1%  122 160 inst       3.2%   62 264 inst
+                                                          avg  5.9 us              avg   8.0 us
+
+     What it does: pre-block tilelang kernel. Fuses RMSNorm on the residual + projection
+     onto the mHC manifold (matmul against `hc_attn_fn` and `hc_ffn_fn` rank-16384 mats,
+     visible in NVTX as TrainableParams hc_attn_fn:[24, 16384]). Runs ONCE per attn block
+     and once per ffn block, so 2x per transformer layer.
+
+  mhc_post_tilelang_kernel                    both       12.0%  122 156 inst      10.8%   62 264 inst
+                                                          avg 17.3 us              avg  26.9 us
+
+     What it does: post-block tilelang kernel. Projects the block's output OFF the
+     manifold back into the residual stream (matmul against hc_attn_fn^T / hc_ffn_fn^T,
+     plus a per-token scaling via hc_*_base / hc_*_scale, NVTX shapes [24] and [3]).
+     Same fire rate as the pre kernel.
+
+  deep_gemm::sm100_tf32_hc_prenorm_gemm_impl  both        2.4%  ~122 k inst        2.2%   62 264 inst
+                                                          avg  3.4 us              avg  3.3 us
+
+     What it does: the TF32 GEMM doing the H × C residual-mix matmul that sits inside
+     the mHC pre-block. Listed separately from mhc_pre because it's the matrix-multiply
+     step itself; mhc_pre is the surrounding fuse-with-norm wrapper.
+
+  _hc_head_kernel                             decode only  0.3%   1 420 inst        0.3%      724 inst
+                                                          avg 43.2 us              avg 64.7 us
+
+     What it does: HC head-level kernel. Fires ~once per decode step (1420 ≈ 1872 decode
+     steps × ~0.76 hits/step), not per layer. Almost certainly the final post-stack mHC
+     readout that converts the manifold residual back into the lm_head input.
+
+  mHC TOTAL (3k):  ~18.8 %        mHC TOTAL (31k):  ~16.5 %
+
+  Per-step interpretation: mHC cost stays roughly constant per token regardless of
+  context — that's expected since mHC operates purely on the per-token residual, not on
+  the KV cache. It only shrinks in % as attention grows in absolute time at long context.
+
+====================================================================================================
+2. CSA — COMPRESSED SPARSE ATTENTION (m=4 family, half of all attention layers)
+====================================================================================================
+
+CSA compresses every m=4 tokens into one entry, then does TOP-K selection on the
+compressed entries before attending. So CSA layers have TWO halves: a SCORING half
+(which picks the top-k) and a READING half (the actual attention over the picked entries).
+
+2a. CSA per-step COMPRESSOR (writes new compressed entries as tokens arrive)
+
+  flash_c4_decode<(long)128, …>(Compress4DecodeParams)
+                                              decode      0.3%   29 156 inst       0.2%   13 524 inst
+                                                          avg  1.88 us              avg  1.87 us
+
+  flash_c4_decode<(long)512, …>(Compress4DecodeParams)
+                                              decode      0.3%   29 156 inst       0.1%   13 524 inst
+                                                          avg  1.63 us              avg  1.53 us
+
+     What they do: the <128> form handles the rope-side compression of new K, the
+     <512> form handles the latent-side. Both fire as a PAIR — one CSA-layer step
+     calls both. Instance count tells us they fire once per CSA layer per decode step:
+     29 156 ≈ 16 CSA layers × 1822 decode steps. Per-instance cost is unchanged from
+     3k → 31k (the kernel compresses ONE new K, not the whole cache).
+
+  flash_c4_prefill<(long)128, …>(Compress4PrefillParams)
+                                              prefill     0.0%      588 inst        0.1%    1 596 inst
+                                                          avg  2.5 us               avg  2.95 us
+
+  flash_c4_prefill<(long)512, …>(Compress4PrefillParams)
+                                              prefill     0.0%      588 inst        0.0%    1 596 inst
+                                                          avg  2.65 us              avg  5.22 us
+
+     Same as above but for chunked-prefill. Fires once per 128-token chunk per CSA layer
+     (sglang's chunked_prefill_size=4096, so a 31k prompt = 8 chunks × 16 CSA layers
+     × 12 prefill batches ≈ 1500 — matches the count). At long context the prefill
+     variant takes 2x longer per instance because it processes more new tokens per call.
+
+  write_c4_prefill<(long)128, …>            prefill       0.0%      672 inst        0.0%    1 680 inst
+  write_c4_prefill<(long)512, …>            prefill       0.0%      672 inst        0.0%    1 680 inst
+                                                          avg  ~1.9 us              avg  ~2.0 us
+
+     What they do: write the compressed entries back to the paged cache after the
+     compressor produced them. The 2-step (compress → write) split lets sglang overlap
+     compute with the cache-write store.
+
+2b. CSA TOP-K SCORING (CSA-only — picks which compressed entries to attend to)
+
+  deep_gemm::sm100_fp8_paged_mqa_logits<…>   both          0.8%   29 828 inst       3.1%   15 204 inst
+                                                          avg  4.4 us               avg 32.1 us
+
+     What it does: computes Q · K_compressed^T over ALL compressed entries in the cache,
+     producing a per-entry logit score that the top-k selector consumes. This is the
+     ONLY kernel in the CSA path that scales with context length: per-instance avg cost
+     grew from 4.4 us at 3k → 32.1 us at 31k (≈7.3×, sublinear in entry count).
+     Fires once per CSA layer per decode step.
+
+  fused_q_indexer_rope_hadamard_quant<…>     decode        0.4%   29 828 inst       0.7%   15 204 inst
+                                                          avg  2.1 us               avg  7.4 us
+
+     What it does: the Q-side companion to paged_mqa_logits. Applies RoPE to Q, then a
+     Hadamard transform (for FP4-friendly numerics), then quantizes to FP8 with a per-
+     token scale — produces the Q tensor in the exact format the scoring kernel expects.
+     Same fire rate as paged_mqa_logits (one per CSA layer per step).
+
+  <unnamed>::topk_short_transform            both          0.0%      672 inst        0.7%    1 680 inst
+                                                          avg  2.9 us               avg 61.7 us
+
+     What it does: applies the top-k SELECTION over the score vector produced by
+     paged_mqa_logits, packs the indices of the chosen compressed entries into a
+     ragged buffer the attention kernel consumes. Fires once per CSA layer per decode
+     step. The huge per-instance grow at 31k (×22) reflects the larger candidate pool
+     to scan.
+
+  <unnamed>::topk_fused_transform            both          0.3%   29 156 inst       0.1%   13 524 inst
+                                                          avg  1.6 us               avg  1.6 us
+
+     What it does: a smaller fused top-k transform — appears to be the "warm" path
+     after topk_short_transform has done the heavy lifting. Per-instance cost flat;
+     bounded by the fixed top-k size, not by entry count.
+
+  <unnamed>::topk_plan                       prefill only  0.0%       12 inst        0.0%       68 inst
+
+     What it does: per-batch top-k plan setup. Few instances; ignorable.
+
+2c. CSA + HCA + SWA SHARED READER (the actual attention kernel — fires for ALL layers)
+
+  flash_fwd_splitkv_mla_fp8_sparse_kernel<ModelType=1>
+                                              decode      4.3%   61 080 inst      10.5%   31 132 inst
+                                                          avg 12.5 us              avg 52.1 us
+
+     What it does: the MLA reader kernel. Fires once per layer per decode step (61080
+     ≈ 32 layers × 1872 steps). Inputs differ by layer type:
+       - CSA layer: reads only the top-k entries that topk_short_transform picked
+       - HCA layer: reads ALL compressed entries (dense over the compressed cache)
+       - both also read the W=128 SWA branch's recent uncompressed K
+     "sparse" describes the indexed paged-access pattern (any/all entries), NOT
+     selectivity. This is the kernel whose per-instance cost grew 4x from 3k → 31k,
+     so it dominates the long-context slowdown.
+
+  flash_fwd_mla_combine_kernel<bf16,512,8,…>  decode      2.1%   61 080 inst       1.4%   31 132 inst
+
+     What it does: split-K combine over the 8 splits the reader emits. Matches your
+     launch_hca_combine analog.
+
+  <unnamed>::smxx_paged_mqa_logits_metadata   both         0.0%    1 424 inst        0.1%      728 inst
+
+     What it does: per-batch metadata for the paged_mqa_logits scoring path. Fires
+     once per batch, not per layer.
+
+  _init_compressed_attn_metadata_kernel       both         0.2%    1 424 inst        0.1%      728 inst
+
+     What it does: initializes per-batch metadata for the compressed-attn paths.
+     Once per batch.
+
+====================================================================================================
+3. HCA — HEAVILY COMPRESSED ATTENTION (m'=128 family, the other half of layers)
+====================================================================================================
+
+HCA compresses every m'=128 tokens into one entry and does DENSE attention over the
+compressed entries (no top-k selection). So HCA has a compressor half and NO scoring
+half — its "reader" is the shared flash_fwd_splitkv_mla_fp8_sparse_kernel above
+(running in dense mode).
+
+  flash_c128_decode<(long)512, …>(Compress128DecodeParams)
+                                              decode      0.2%   27 764 inst       0.1%   12 880 inst
+                                                          avg  1.4 us               avg  1.3 us
+
+     What it does: HCA's per-step compressor. Fires once per HCA layer per decode step
+     (27 764 ≈ 15-16 HCA layers × ~1800 decode steps). Single-template (no <128>/<512>
+     pair like CSA — HCA folds rope+latent compression into one kernel). Per-instance
+     cost FLAT regardless of context (compresses ONE new K, like CSA's compressor).
+
+  flash_c128_prefill<(long)512, …>            prefill     0.0%      160 inst        0.0%    1 200 inst
+                                                          avg  3.7 us               avg  4.5 us
+
+     What it does: prefill version. Fires once per HCA layer per 4096-token prefill
+     chunk. At 31k context we see 1200 instances vs 160 at 3k — proportional to total
+     prefilled tokens.
+
+  write_c128_prefill<(long)512, …>            prefill     0.0%      640 inst        0.0%      400 inst
+
+     What it does: write-back of HCA-compressed entries to the paged cache during
+     prefill. (One write per 4-chunk batch; explains the 4x lower count vs flash_c4_*
+     write — HCA produces 1 entry per 128 tokens vs CSA's 1 entry per 4 tokens.)
+
+  HCA has NO equivalent of paged_mqa_logits / topk_short_transform / fused_q_indexer.
+  HCA's attention is dense over its compressed cache; no entry-selection happens.
+
+====================================================================================================
+4. TOP-K INDEXING (MoE expert routing + attention top-k both fall under this banner)
+====================================================================================================
+
+Two distinct concepts:
+  (a) MoE expert top-k routing — picks which experts each token's logits flow through
+  (b) Attention top-k selection (CSA) — see section 2b above
+
+This section lists (a). All fire in BOTH prefill and decode (every token gets routed).
+
+  moe_fused_gate_kernel_small_token<…>        both         1.2%   56 488 inst       0.7%   26 560 inst
+                                                          avg  3.8 us               avg  3.8 us
+
+     What it does: computes per-token expert routing scores. "small_token" variant
+     handles decode (1 token per request) and small prefill batches. Per-instance cost
+     flat across contexts — gating is per-token, not per-context.
+
+  moe_fused_gate_kernel<…>                    prefill      0.0%      320 inst        0.1%    2 400 inst
+
+     What it does: same but the "big" variant for big prefill chunks (chunked-prefill).
+
+  moe_hash_topk_fused<act_sqrt_softplus,…>    both         0.1%    4 272 inst        0.0%    2 172 inst
+                                                          avg  2.1 us               avg  2.2 us
+
+     What it does: hash-based top-k expert selection (with act=sqrt_softplus). Fires
+     once per batch (per scheduler step), not per layer. Note: act_sqrt_softplus is the
+     DSv4 gating activation — distinct from V3's softmax.
+
+  _pack_topk_ids_triton_kernel                both         0.4%   61 080 inst       0.2%   31 132 inst
+                                                          avg  1.2 us               avg  1.2 us
+
+     What it does: packs the per-token selected expert IDs into a contiguous buffer
+     the MoE GEMM dispatch consumes. Once per MoE layer per token.
+
+  routingIndicesBlockKernel<…>                both         0.4%   27 864 inst       0.5%   27 864 inst
+                                                          avg  2.6 us               avg  2.7 us
+
+  routingIndicesClusterKernel<…>              prefill      0.0%      344 inst        0.2%    2 580 inst
+
+  routingIndicesDynBlockKernel<…>             both         0.6%   32 872 inst       0.0%      688 inst
+
+     What they do: convert the per-token top-k expert IDs into per-expert token-index
+     buffers (CSR-style) so each expert's GEMM gets a contiguous slice. Three variants
+     for different scheduling regimes (block-uniform / cluster / dynamic-block). The
+     DynBlock variant dominated at 3k (small batches), the cluster variant kicked in
+     at 31k (more tokens to schedule).
+
+====================================================================================================
+QUICK CHEAT SHEET
+====================================================================================================
+
+  WHEN A NEW TOKEN ARRIVES (decode):
+    1. fused_q_norm_rope + fused_k_norm_rope_flashmla            (norm + rope on Q, K)
+    2. flash_c4_decode<128> + flash_c4_decode<512>               (CSA layer's compressor)
+    3. flash_c128_decode<512>                                    (HCA layer's compressor)
+    4. fused_q_indexer_rope_hadamard_quant + paged_mqa_logits +
+       topk_short_transform                                      (CSA top-k score+pick)
+    5. flash_fwd_splitkv_mla_fp8_sparse_kernel                   (attention read; all layer types)
+    6. flash_fwd_mla_combine_kernel                              (split-K combine)
+    7. mhc_pre_big_fuse_with_norm + tf32_hc_prenorm_gemm         (mHC pre)
+    8. (MoE: moe_fused_gate_kernel_small_token + routingIndices +
+        _pack_topk_ids + the expert bmm/deep_gemm calls)
+    9. mhc_post_tilelang_kernel                                  (mHC post)
+   10. once per step: _hc_head_kernel (final readout)
+
+  WHEN A PREFILL CHUNK ARRIVES:
+    Same as above but with the *_prefill kernels in place of *_decode for the c4/c128
+    paths, plus write_c4_prefill / write_c128_prefill to flush new compressed entries
+    to the cache. The shared flash_fwd_splitkv_mla_fp8_sparse_kernel is the same.
+
+  SCALING BEHAVIOUR FROM 3k → 31k (PER DECODE STEP, ALL 4 RANKS, 4xB200 TP=4):
+    flash_fwd_splitkv_mla_fp8_sparse_kernel    : ~ ×4    (THIS is the long-context cost)
+    deep_gemm::sm100_fp8_paged_mqa_logits      : ~ ×7    (CSA score grows with cache)
+    topk_short_transform                       : ~ ×22   (more candidates to sift)
+    flash_c4_decode<*> / flash_c128_decode     : ~ flat  (per-token compress, fixed cost)
+    mhc_pre / mhc_post / hc_head               : ~ flat per token
+    moe_fused_gate / _pack_topk_ids / routing  : ~ flat per token
+    all_reduce kernels                         : ~ ×2    (proportional to attn output size)
+
+====================================================================================================
+PROVENANCE
+====================================================================================================
+
+  3k  run: remote/dsv4_decode_stats_cuda_gpu_kern_sum.csv     (batch=8 bench, 25s window)
+  31k run: remote/dsv4_decode_100k_stats_cuda_gpu_kern_sum.csv (batch=2 bench, 25s window)
+  Per-event timing for every individual launch: remote/*_cuda_gpu_trace.csv

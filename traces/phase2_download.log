@@ -1,0 +1,39 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-zrzaAXG8empNFmYD1Rz68C
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+└── 🔨 Created function serve_and_trace.
+snapshot_download deepseek-ai/DeepSeek-V4-Flash -> /cache/hf
+
+[1AFetching 74 files:   0%|          | 0/74 [00:00<?, ?it/s]Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+[1AFetching 74 files:   3%|▎         | 2/74 [00:00<00:34,  2.12it/s]
+[1AFetching 74 files:  35%|███▌      | 26/74 [00:08<00:15,  3.09it/s]
+[1AFetching 74 files:  36%|███▋      | 27/74 [00:12<00:24,  1.89it/s]
+[1AFetching 74 files:  42%|████▏     | 31/74 [00:12<00:18,  2.37it/s]
+[1AFetching 74 files:  46%|████▌     | 34/74 [00:13<00:14,  2.78it/s]
+[1AFetching 74 files:  47%|████▋     | 35/74 [00:29<01:09,  1.77s/it]
+[1AFetching 74 files:  61%|██████    | 45/74 [00:32<00:27,  1.07it/s]
+[1AFetching 74 files:  62%|██████▏   | 46/74 [00:33<00:26,  1.07it/s]
+[1AFetching 74 files:  64%|██████▎   | 47/74 [00:54<01:17,  2.87s/it]
+[1AFetching 74 files:  66%|██████▌   | 49/74 [00:55<00:57,  2.30s/it]
+[1AFetching 74 files:  68%|██████▊   | 50/74 [00:55<00:50,  2.08s/it]
+[1AFetching 74 files:  69%|██████▉   | 51/74 [00:56<00:41,  1.80s/it]
+[1AFetching 74 files:  70%|███████   | 52/74 [00:56<00:33,  1.54s/it]
+[1AFetching 74 files:  74%|███████▍  | 55/74 [01:03<00:36,  1.91s/it]
+[1AFetching 74 files:  76%|███████▌  | 56/74 [01:04<00:31,  1.77s/it]
+[1AFetching 74 files:  77%|███████▋  | 57/74 [01:05<00:28,  1.66s/it]
+[1AFetching 74 files:  78%|███████▊  | 58/74 [01:06<00:23,  1.45s/it]
+[1AFetching 74 files:  81%|████████  | 60/74 [01:07<00:13,  1.04it/s]
+[1AFetching 74 files:  82%|████████▏ | 61/74 [01:07<00:10,  1.27it/s]
+[1AFetching 74 files:  85%|████████▌ | 63/74 [01:09<00:09,  1.18it/s]
+[1AFetching 74 files:  86%|████████▋ | 64/74 [01:12<00:13,  1.31s/it]
+[1AFetching 74 files:  88%|████████▊ | 65/74 [01:30<00:48,  5.34s/it]Fetching 74 files: 100%|██████████| 74/74 [01:30<00:00,  1.22s/it]
+done: /cache/hf/models--deepseek-ai--DeepSeek-V4-Flash/snapshots/6976c7ff1b30a1b2cb7805021b8ba4684041f136
+316K    /cache/hf/models--deepseek-ai--DeepSeek-V4-Flash/snapshots/6976c7ff1b30a1b2cb7805021b8ba4684041f136
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-zrzaAXG8empNFmYD1Rz68C

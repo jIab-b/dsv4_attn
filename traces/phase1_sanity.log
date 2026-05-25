@@ -1,0 +1,98 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-gmNBwvsm4STKOhv6avNkjK
+Building image im-mnfx8mjAE5TxBdIWIFw4kM
+
+Using legacy Image Builder version. We suggest upgrading at https://modal.com/settings/image-config.
+
+=> Step 0: FROM base
+
+=> Step 1: COPY --from=ghcr.io/astral-sh/uv:latest /uv /.uv/uv
+Getting image source signatures
+Copying blob sha256:edf16e7a8ef4fafc6ea9c9cff19db5558f8dad3b64f9ad7540a11699fc7e6a60
+Copying blob sha256:51e5b22c7c9f50cb9b87616ce109058a097bf732e479d7cd03f1968e4e75b9ee
+Copying config sha256:ed93eeb3cf920de60e0e56cba55fd87f94aa1815d82fb152dde84c3b4f6e93c4
+Writing manifest to image destination
+Unpacking OCI image
+   • unpacking rootfs ...     
+   • ... done                 
+   • unpacked image rootfs: /tmp/.tmpPGblM7
+
+=> Step 2: RUN /.uv/uv pip install --python $(command -v python) --compile-bytecode requests==2.32.3 'typing_extensions>=4.14.0'
+Using Python 3.12.3 environment at: /usr
+Resolved 6 packages in 43ms
+Prepared 2 packages in 6ms
+Uninstalled 2 packages in 4ms
+Installed 2 packages in 46ms
+Bytecode compiled 27270 files in 3.99s
+ - requests==2.34.2
+ + requests==2.32.3
+ - typing-extensions==4.12.2
+ + typing-extensions==4.15.0
+Saving image...
+Image saved, took 6.80s
+
+Built image im-mnfx8mjAE5TxBdIWIFw4kM in 14.61s
+
+
+Building image im-oJAMfD9uOwG5Jc8KIgc5Zu
+
+Using legacy Image Builder version. We suggest upgrading at https://modal.com/settings/image-config.
+
+=> Step 0: FROM base
+
+=> Step 1: ENV HF_HUB_CACHE=/cache/hf
+
+=> Step 2: ENV HF_XET_HIGH_PERFORMANCE=1
+
+=> Step 3: ENV NSYS_NVTX_PROFILER_REGISTER_ONLY=0
+
+=> Step 4: ENV TOKENIZERS_PARALLELISM=false
+
+=> Step 5: ENV SGLANG_DISABLE_TQDM=1
+Saving image...
+Image saved, took 3.40s
+
+Built image im-oJAMfD9uOwG5Jc8KIgc5Zu in 4.80s
+
+
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+└── 🔨 Created function serve_and_trace.
+=== nvidia-smi ===
+Tue May 19 22:14:54 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.95.05              Driver Version: 580.95.05      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA B200                    On  |   00000000:83:00.0 Off |                    0 |
+| N/A   26C    P0            190W / 1000W |       0MiB / 183359MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+=== nsys ===
+NVIDIA Nsight Systems version 2026.2.1.210-262137639646v0
+=== python / sglang / torch ===
+torch 2.11.0+cu129 cuda 12.9 ndev 1
+sglang 0.5.12
+=== CUDA props ===
+  dev0: NVIDIA B200 sm100 mem=191.5GB
+=== nccl ===
+nccl (2, 28, 9)
+=== HF cache mount ===
+lrwxrwxrwx 1 root root 42 May 19 22:14 /cache/hf -> /__modal/volumes/vo-yeV6HupDOrhbvcmNFkUyAV
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-gmNBwvsm4STKOhv6avNkjK

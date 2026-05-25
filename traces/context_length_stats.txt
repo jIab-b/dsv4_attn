@@ -1,0 +1,128 @@
+====================================================================================================
+DSv4-Flash — per-context-length prefill + decode stats
+4x B200, TP=4, sglang 0.5.12, --moe-runner-backend flashinfer_mxfp4
+batch=1, temperature=0.7, top_p=0.9 (greedy crashes with NaN logits on this build)
+====================================================================================================
+
+INTENDED SWEEP: 50k, 100k, 150k, ..., 500k in 50k intervals.
+ACTUAL OUTCOME: every long-context request triggers `Xid 31 MMU Fault: ENGINE GRAPHICS
+                GPC*_GPCCLIENT_T1_* FAULT_PDE ACCESS_TYPE_VIRT_READ`. The TCP connection
+                drops mid-stream, server dies, the next request hits ConnectionRefused.
+                The fault occurs reliably from ~4k tokens upward on this exact build
+                (sglang 0.5.12 / cu129 / FP4 MoE / 4x B200), so we cannot reach 500k.
+                Restarting the server lets ONE more request through before the next fault.
+
+We banked one partial measurement per server life (decoded a handful of tokens before the
+fault was detected), then ran out of restarts. Below is everything we have, including the
+earlier bench-loop data from the nsys traces (those used continuous bench-loops, so they
+captured aggregate decode rates at batch>1).
+
+====================================================================================================
+PARTIAL POINT-SAMPLES (single-request bench from this sweep; server killed shortly after)
+====================================================================================================
+
+ ctx_tok  prompt   compl   ttft     decode    prefill   decode    ms/      run     status
+                   tok     (s)      wall(s)   tok/s     tok/s     step             when
+-------------------------------------------------------------------------------------------
+   4,015     4015    38    6.298    0.229       637.5    165.7    6.20    batch=1   crashed after 38
+   8,030     8030    19    1.550    0.142     5,180.6    134.1    7.87    batch=1   crashed after 19
+  16,060   16060     3*    1.801    0.012     8,917.3   (260.1)  (5.77)   batch=1   *only 3 tokens, noisy
+  32,047   32047    24    7.133    0.142     4,493.5    168.5    6.19    batch=1   crashed after 24
+  50,005   50005    15    8.509    0.087     5,878.4    173.1    6.19    batch=1   crashed after 15 (prior run)
+ 100k+     -        -      -        -          -        -        -       n/a       all crashed before any token
+
+  prefill_tok/s = prompt_tokens / ttft_s
+  decode_tok/s  = (completion_tokens - 1) / decode_wall_s   (excludes first token = prefill)
+  ms/step       = 1000 * decode_wall_s / (completion_tokens - 1)
+  (decode_tok/s == ms/step are inversely linked; both reported for clarity)
+
+====================================================================================================
+BENCH-LOOP BASELINES (multi-request, continuous load, longer-running — from the nsys traces)
+====================================================================================================
+
+These are the more trustworthy numbers since they ran a continuous bench loop and the metrics
+come from sglang's own server.log "Decode batch" lines (not single-shot HTTP timing).
+
+  ctx_tok   batch   aggregate    per-req      ms/step    source
+            size    decode/s     decode/s     (aggr)
+  -------   -----   ----------   ---------    -------    ----------------------------------------
+   ~3,072      8     1017-1034     127-129    ~0.97      remote/server.log (3k trace decode batches)
+  ~31,232      2       284          142       ~3.52      remote/server_100k.log (100k trace decode)
+                                                         (per-req aggregated over batch=2)
+
+  Note: bench-loop "decode/s" includes the per-request overhead of receiving requests
+  back-to-back through HTTP. The single-shot sweep numbers above are slightly LOWER per
+  request than these per-req figures because they include the steady-state of the
+  cudagraph after warmup, not the rough first-decode.
+
+====================================================================================================
+WHAT THE NUMBERS SAY (with limited data)
+====================================================================================================
+
+PREFILL
+  - Prefill throughput per request is roughly flat at ~4500-6000 tok/s in 8k-50k range
+    (the 4k point's 637 tok/s is contaminated by first-request server startup; ignore it).
+  - The 16k point hit 8,917 tok/s — almost certainly a partial radix-cache hit from a
+    prior probe at the same prefix; treat as an outlier.
+  - sglang's chunked-prefill (chunked_prefill_size=4096) means a 50k prompt is 13 chunks;
+    server.log shows steady-state chunk throughput ~20-25k tok/s while in flight, but the
+    end-to-end TTFT adds chunk-handover overhead + cudaGraph capture for the prefill batch.
+
+DECODE
+  - Per-request decode rate is **~135-175 tok/s** across all observed contexts (3k - 50k).
+  - Per-request ms/decode-step is **~6-8 ms** across that range.
+  - Decode rate at batch=1 is **strikingly flat** with context — but we couldn't push past
+    50k to see HCA's cost cliff at 7800+ compressed entries. The bench-loop at batch=8
+    over 3k context delivered ~127 tok/s/req at 0.97 ms/step, while batch=2 at 31k delivered
+    142 tok/s/req at 3.52 ms/step. So per-step latency grew ~3.6x going from 3k → 31k context
+    at batched load.
+
+WHY ARE THE SINGLE-SHOT DECODE NUMBERS FLAT WHEN THE BENCH-LOOP NUMBERS GROW?
+  - Single-shot at batch=1 is dominated by per-step overhead (TP allreduce launch latency,
+    cudagraph launch, kernel-launch tail). Even at small context that's already 6 ms,
+    which masks the linear attention-growth cost up to ~50k.
+  - The bench-loop at batch>1 amortises the per-step overhead over multiple tokens per
+    forward, so the attention compute term becomes visible. That's why the 3k -> 31k diff
+    in batched load shows the 3.5x slowdown, but the single-shot sweep doesn't.
+
+====================================================================================================
+WHY THE CRASH (and what would unblock the 50k-500k sweep)
+====================================================================================================
+
+Failure signature (consistent across all post-warmup requests):
+  Xid 31 NVRM MMU Fault: ENGINE GRAPHICS GPCx_GPCCLIENT_T1_y faulted @ 0x...
+  Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+This is a GPU MMU saying a kernel issued a virtual-read against an unmapped page. It is
+NOT a sglang Python-level bug; it's a kernel-side memory access violation. Most likely
+culprit on this exact stack: the paged KV-cache index machinery (paged_mqa_logits +
+flash_fwd_splitkv_mla_fp8_sparse_kernel) reading a page table entry the kernel believes
+exists but the allocator hasn't mapped. Could also be:
+  - cudagraph capture replaying with stale pointer (cuda graph + dynamic page table)
+  - FP4 MoE dispatcher writing past expected buffer (deepep, mxfp4 backend)
+  - NCCL custom-allreduce IPC handle expiring mid-graph (~448 cudaIpcOpenMemHandle calls
+    per ~25s in the 3k trace — that's a recurring re-mapping)
+
+Unblockers, in order of cheapness:
+  1. Newer sglang. v0.5.12 is from before the post-launch DSv4 bugfix wave; the sglang
+     issue tracker has open `Tracking DeepSeek V4 Flash GB200 serving fixes` (#23743).
+     Try `lmsysorg/sglang:latest` or `v0.5.12-cu130` once it lands.
+  2. Disable cudaGraph for the run (`--disable-cuda-graph`) — 5-10x slower decode but
+     eliminates the graph-pointer-staleness hypothesis. Useful to confirm/refute the cause.
+  3. Switch to V4-Pro on 8x B200 (or GB200) — sglang's Day-0 stability list shows V4-Pro
+     is better-tested than V4-Flash, and the GB200 has different memory layout that
+     dodges some of the V4-Flash B200 issues per #23743.
+  4. Cap context at a known-stable point and use a smaller batch so per-token KV growth
+     stays under whatever page-table size the kernel pre-allocates.
+
+====================================================================================================
+ARTIFACTS ON DISK
+====================================================================================================
+
+  remote/context_sweep.csv                      machine-readable sweep results
+  remote/context_sweep.txt                      formatted sweep table (as captured on volume)
+  remote/server_sweep.log                       113 KB; full sglang/torch trace incl. Xid output
+  remote/server.log         (3k bench loop)     for the bench-loop baselines
+  remote/server_100k.log    (~31k bench loop)   for the bench-loop baselines
+
+  context_length_stats.txt   ← this file

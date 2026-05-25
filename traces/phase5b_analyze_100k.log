@@ -1,0 +1,33 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-dJYSQ18i9BQLe4kcaZPh1l
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+├── 🔨 Created function serve_and_trace.
+└── 🔨 Created function analyze_rep.
+removing stale /traces/dsv4_decode_100k.sqlite
+cmd: nsys stats --force-export=true --format csv --output /traces/dsv4_decode_100k_stats --report cuda_gpu_kern_sum --report cuda_gpu_trace --report cuda_api_sum --report nvtx_sum --report cuda_gpu_mem_time_sum --report cuda_gpu_mem_size_sum /traces/dsv4_decode_100k.nsys-rep
+rc: 0
+--- stdout (tail) ---
+Generating SQLite file /traces/dsv4_decode_100k.sqlite from /traces/dsv4_decode_100k.nsys-rep
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_kern_sum.py] to [/traces/dsv4_decode_100k_stats_cuda_gpu_kern_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_trace.py] to [/traces/dsv4_decode_100k_stats_cuda_gpu_trace.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_api_sum.py] to [/traces/dsv4_decode_100k_stats_cuda_api_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/nvtx_sum.py] to [/traces/dsv4_decode_100k_stats_nvtx_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_mem_time_sum.py] to [/traces/dsv4_decode_100k_stats_cuda_gpu_mem_time_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_mem_size_sum.py] to [/traces/dsv4_decode_100k_stats_cuda_gpu_mem_size_sum.csv]... PROCESSED
+
+
+--- stderr (tail) ---
+
+produced: ['/traces/dsv4_decode_100k_stats_cuda_api_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_kern_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_mem_size_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_mem_time_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_trace.csv', '/traces/dsv4_decode_100k_stats_nvtx_sum.csv']
+['/traces/dsv4_decode_100k_stats_cuda_api_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_kern_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_mem_size_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_mem_time_sum.csv', '/traces/dsv4_decode_100k_stats_cuda_gpu_trace.csv', '/traces/dsv4_decode_100k_stats_nvtx_sum.csv']
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-dJYSQ18i9BQLe4kcaZPh1l

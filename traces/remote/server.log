@@ -1,0 +1,559 @@
+/sgl-workspace/sglang/python/sglang/launch_server.py:54: UserWarning: 'python -m sglang.launch_server' is still supported, but 'sglang serve' is the recommended entrypoint.
+  Example: sglang serve --model-path <model> [options]
+  warnings.warn(
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:18] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:18] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:18] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:18] Use dsv4 attention backend for DeepseekV4ForCausalLM, setting page_size to 256.
+[2026-05-19 22:52:18] Setting max_running_requests to 256 for DeepseekV4ForCausalLM.
+[2026-05-19 22:52:18] Setting KV cache dtype to fp8_e4m3 for DeepseekV4ForCausalLM.
+[2026-05-19 22:52:18] Piecewise cuda graph is disabled for MoE runner backend 'flashinfer_mxfp4' (bypassed topk is incompatible with torch.compile).
+[2026-05-19 22:52:20] server_args=ServerArgs(model_path='deepseek-ai/DeepSeek-V4-Flash', tokenizer_path='deepseek-ai/DeepSeek-V4-Flash', tokenizer_mode='auto', tokenizer_backend='huggingface', tokenizer_worker_num=1, detokenizer_worker_num=1, skip_tokenizer_init=False, load_format='auto', model_loader_extra_config='{}', trust_remote_code=True, context_length=None, is_embedding=False, prefill_only_disable_kv_cache=False, enable_multimodal=None, revision=None, model_impl='auto', model_config_parser='auto', host='127.0.0.1', port=30000, fastapi_root_path='', grpc_mode=False, skip_server_warmup=False, warmups=None, nccl_port=None, checkpoint_engine_wait_weights_before_ready=False, ssl_keyfile=None, ssl_certfile=None, ssl_ca_certs=None, ssl_keyfile_password=None, enable_ssl_refresh=False, enable_http2=False, dtype='auto', quantization=None, quantization_param_path=None, kv_cache_dtype='fp8_e4m3', enable_fp32_lm_head=False, modelopt_quant=None, modelopt_checkpoint_restore_path=None, modelopt_checkpoint_save_path=None, modelopt_export_path=None, quantize_and_serve=False, rl_quant_profile=None, mem_fraction_static=0.9, max_running_requests=256, max_queued_requests=None, max_total_tokens=None, chunked_prefill_size=4096, enable_dynamic_chunking=False, max_prefill_tokens=16384, prefill_max_requests=None, schedule_policy='fcfs', enable_priority_scheduling=False, disable_priority_preemption=False, default_priority_value=None, abort_on_priority_when_disabled=False, schedule_low_priority_values_first=False, priority_scheduling_preemption_threshold=10, schedule_conservativeness=1.0, page_size=256, swa_full_tokens_ratio=0.1, disable_hybrid_swa_memory=False, radix_eviction_policy='lru', enable_prefill_delayer=False, prefill_delayer_max_delay_passes=30, prefill_delayer_token_usage_low_watermark=None, prefill_delayer_forward_passes_buckets=None, prefill_delayer_wait_seconds_buckets=None, prefill_delayer_queue_min_ratio=None, prefill_delayer_max_delay_ms=None, device='cuda', tp_size=4, pp_size=1, pp_max_micro_batch_size=None, pp_async_batch_depth=0, stream_interval=1, batch_notify_size=16, stream_response_default_include_usage=False, incremental_streaming_output=False, enable_streaming_session=False, random_seed=582610361, constrained_json_whitespace_pattern=None, constrained_json_disable_any_whitespace=False, watchdog_timeout=300, soft_watchdog_timeout=None, dist_timeout=None, download_dir=None, model_checksum=None, base_gpu_id=0, gpu_id_step=1, sleep_on_idle=False, use_ray=False, custom_sigquit_handler=None, log_level='info', log_level_http=None, log_requests=False, log_requests_level=2, log_requests_format='text', log_requests_target=None, uvicorn_access_log_exclude_prefixes=[], crash_dump_folder=None, show_time_cost=False, enable_metrics=False, grpc_http_sidecar_port=None, enable_mfu_metrics=False, enable_metrics_for_all_schedulers=False, tokenizer_metrics_custom_labels_header='x-custom-labels', tokenizer_metrics_allowed_custom_labels=None, extra_metric_labels=None, bucket_time_to_first_token=None, bucket_inter_token_latency=None, bucket_e2e_request_latency=None, prompt_tokens_buckets=None, generation_tokens_buckets=None, gc_warning_threshold_secs=0.0, decode_log_interval=40, enable_request_time_stats_logging=False, kv_events_config=None, enable_forward_pass_metrics=False, forward_pass_metrics_worker_id='', forward_pass_metrics_ipc_name=None, enable_trace=False, otlp_traces_endpoint='localhost:4317', export_metrics_to_file=False, export_metrics_to_file_dir=None, api_key=None, admin_api_key=None, served_model_name='deepseek-ai/DeepSeek-V4-Flash', weight_version='default', chat_template=None, hf_chat_template_name=None, completion_template=None, file_storage_path='sglang_storage', enable_cache_report=False, reasoning_parser=None, strip_thinking_cache=False, enable_strict_thinking=False, tool_call_parser=None, tool_server=None, sampling_defaults='model', dp_size=1, load_balance_method='round_robin', attn_cp_size=1, moe_dp_size=1, dist_init_addr=None, nnodes=1, node_rank=0, json_model_override_args='{}', preferred_sampling_params=None, enable_lora=None, enable_lora_overlap_loading=None, max_lora_rank=None, lora_target_modules=None, lora_paths=None, max_loaded_loras=None, max_loras_per_batch=8, lora_eviction_policy='lru', lora_backend='csgmv', max_lora_chunk_size=16, experts_shared_outer_loras=None, lora_use_virtual_experts=False, lora_strict_loading=False, lora_drain_wait_threshold=0.0, attention_backend='dsv4', decode_attention_backend=None, prefill_attention_backend=None, sampling_backend='flashinfer', grammar_backend='xgrammar', mm_attention_backend=None, fp8_gemm_runner_backend='auto', fp4_gemm_runner_backend='auto', nsa_prefill_backend=None, nsa_decode_backend=None, disable_flashinfer_autotune=True, mamba_backend='triton', speculative_algorithm=None, speculative_draft_model_path=None, speculative_draft_model_revision=None, speculative_draft_load_format=None, speculative_num_steps=None, speculative_eagle_topk=None, speculative_num_draft_tokens=None, speculative_dflash_block_size=None, speculative_accept_threshold_single=1.0, speculative_accept_threshold_acc=1.0, speculative_token_map=None, speculative_attention_mode='prefill', speculative_draft_attention_backend=None, speculative_draft_window_size=None, speculative_moe_runner_backend='flashinfer_mxfp4', speculative_moe_a2a_backend=None, speculative_draft_model_quantization=None, speculative_adaptive=False, speculative_adaptive_config=None, speculative_skip_dp_mlp_sync=False, speculative_ngram_min_bfs_breadth=1, speculative_ngram_max_bfs_breadth=10, speculative_ngram_match_type='BFS', speculative_ngram_max_trie_depth=18, speculative_ngram_capacity=10000000, speculative_ngram_external_corpus_path=None, speculative_ngram_external_sam_budget=0, speculative_ngram_external_corpus_max_tokens=10000000, enable_multi_layer_eagle=False, ep_size=1, moe_a2a_backend='none', moe_runner_backend='flashinfer_mxfp4', record_nolora_graph=True, flashinfer_mxfp4_moe_precision='default', enable_flashinfer_allreduce_fusion=False, enforce_disable_flashinfer_allreduce_fusion=False, enable_aiter_allreduce_fusion=False, deepep_mode='auto', ep_num_redundant_experts=0, ep_dispatch_algorithm=None, init_expert_location='trivial', enable_eplb=False, eplb_algorithm='auto', eplb_rebalance_num_iterations=1000, eplb_rebalance_layers_per_chunk=None, eplb_min_rebalancing_utilization_threshold=1.0, expert_distribution_recorder_mode=None, expert_distribution_recorder_buffer_size=1000, enable_expert_distribution_metrics=False, deepep_config=None, moe_dense_tp_size=None, elastic_ep_backend=None, enable_elastic_expert_backup=False, mooncake_ib_device=None, enable_deepep_waterfill=False, elastic_ep_rejoin=False, max_mamba_cache_size=None, mamba_ssm_dtype=None, mamba_full_memory_ratio=0.9, mamba_scheduler_strategy='no_buffer', mamba_track_interval=256, linear_attn_backend='triton', linear_attn_decode_backend=None, linear_attn_prefill_backend=None, enable_hierarchical_cache=False, hicache_ratio=2.0, hicache_size=0, hicache_write_policy='write_through', hicache_io_backend='kernel', hicache_mem_layout='layer_first', hicache_storage_backend=None, hicache_storage_prefetch_policy='timeout', hicache_storage_backend_extra_config=None, enable_hisparse=False, hisparse_config=None, enable_lmcache=False, kt_weight_path=None, kt_method='AMXINT4', kt_cpuinfer=None, kt_threadpool_count=2, kt_num_gpu_experts=None, kt_max_deferred_experts_per_token=None, dllm_algorithm=None, dllm_algorithm_config=None, cpu_offload_gb=0, offload_group_size=-1, offload_num_in_group=1, offload_prefetch_step=1, offload_mode='cpu', enable_mis=False, disable_radix_cache=False, cuda_graph_max_bs=512, cuda_graph_bs=[1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], disable_cuda_graph=False, disable_cuda_graph_padding=False, enable_breakable_cuda_graph=False, enable_profile_cuda_graph=True, enable_cudagraph_gc=False, debug_cuda_graph=False, enable_layerwise_nvtx_marker=True, enable_nccl_nvls=False, enable_symm_mem=False, disable_flashinfer_cutlass_moe_fp4_allgather=False, enable_tokenizer_batch_encode=False, disable_tokenizer_batch_decode=False, disable_outlines_disk_cache=False, disable_custom_all_reduce=False, enable_mscclpp=False, enable_torch_symm_mem=False, pre_warm_nccl=False, disable_overlap_schedule=False, enable_mixed_chunk=False, enable_dp_attention=False, enable_dp_attention_local_control_broadcast=False, enable_dp_lm_head=False, enable_two_batch_overlap=False, enable_single_batch_overlap=False, tbo_token_distribution_threshold=0.48, enable_torch_compile=False, disable_piecewise_cuda_graph=True, enforce_piecewise_cuda_graph=False, enable_torch_compile_debug_mode=False, torch_compile_max_bs=32, piecewise_cuda_graph_max_tokens=4096, piecewise_cuda_graph_tokens=[4, 8, 12, 16, 20, 24, 28, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640, 704, 768, 832, 896, 960, 1024, 1280, 1536, 1792, 2048, 2304, 2560, 2816, 3072, 3328, 3584, 3840, 4096], piecewise_cuda_graph_compiler='eager', torchao_config='', enable_nan_detection=False, enable_p2p_check=False, triton_attention_reduce_in_fp32=False, triton_attention_num_kv_splits=8, triton_attention_split_tile_size=None, num_continuous_decode_steps=1, delete_ckpt_after_loading=False, enable_memory_saver=False, enable_weights_cpu_backup=False, enable_draft_weights_cpu_backup=False, allow_auto_truncate=False, enable_custom_logit_processor=False, flashinfer_mla_disable_ragged=False, disable_shared_experts_fusion=False, enforce_shared_experts_fusion=False, disable_chunked_prefix_cache=False, disable_fast_image_processor=False, keep_mm_feature_on_device=False, enable_return_hidden_states=False, enable_return_routed_experts=False, enable_return_indexer_topk=False, scheduler_recv_interval=1, numa_node=None, enable_deterministic_inference=False, rl_on_policy_target=None, enable_attn_tp_input_scattered=False, gc_threshold=None, enable_nsa_prefill_context_parallel=False, nsa_prefill_cp_mode='round-robin-split', enable_fused_qk_norm_rope=False, enable_precise_embedding_interpolation=False, enable_fused_moe_sum_all_reduce=False, enable_prefill_context_parallel=False, prefill_cp_mode='in-seq-split', enable_dynamic_batch_tokenizer=False, dynamic_batch_tokenizer_batch_size=32, dynamic_batch_tokenizer_batch_timeout=0.002, debug_tensor_dump_output_folder=None, debug_tensor_dump_layers=None, debug_tensor_dump_input_file=None, debug_tensor_dump_inject=False, disaggregation_mode='null', disaggregation_transfer_backend='mooncake', disaggregation_bootstrap_port=8998, disaggregation_ib_device=None, disaggregation_decode_enable_radix_cache=False, disaggregation_decode_enable_offload_kvcache=False, num_reserved_decode_tokens=512, disaggregation_decode_polling_interval=1, encoder_only=False, language_only=False, encoder_transfer_backend='zmq_to_scheduler', encoder_urls=[], enable_adaptive_dispatch_to_encoder=False, custom_weight_loader=[], weight_loader_disable_mmap=False, weight_loader_prefetch_checkpoints=False, weight_loader_prefetch_num_threads=4, weight_loader_drop_cache_after_load=False, remote_instance_weight_loader_seed_instance_ip=None, remote_instance_weight_loader_seed_instance_service_port=None, remote_instance_weight_loader_send_weights_group_ports=None, remote_instance_weight_loader_backend='nccl', remote_instance_weight_loader_start_seed_via_transfer_engine=False, engine_info_bootstrap_port=6789, modelexpress_config=None, enable_pdmux=False, pdmux_config_path=None, sm_group_num=8, enable_broadcast_mm_inputs_process=False, enable_prefix_mm_cache=False, mm_enable_dp_encoder=False, mm_process_config={}, limit_mm_data_per_request=None, enable_mm_global_cache=False, decrypted_config_file=None, decrypted_draft_config_file=None, forward_hooks=None, enable_quant_communications=False, msprobe_dump_config=None)
+[2026-05-19 22:52:20] NUMA affinity is already constrained for process, skipping NUMA node configuration for GPU. Remove your constraints to allow automatic configuration.
+[2026-05-19 22:52:20] NUMA affinity is already constrained for process, skipping NUMA node configuration for GPU. Remove your constraints to allow automatic configuration.
+[2026-05-19 22:52:20] NUMA affinity is already constrained for process, skipping NUMA node configuration for GPU. Remove your constraints to allow automatic configuration.
+[2026-05-19 22:52:20] NUMA affinity is already constrained for process, skipping NUMA node configuration for GPU. Remove your constraints to allow automatic configuration.
+[2026-05-19 22:52:20] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:20] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:21] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:52:21] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:22] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:22] No HuggingFace chat template found
+[2026-05-19 22:52:22] No chat template found, defaulting to 'string' content format
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP2] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP2] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:30 TP2] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP0] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:30 TP0] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP3] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP2] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP1] Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-05-19 22:52:30 TP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:30 TP1] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:31 TP3] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:31 TP3] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:31] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:52:31 TP0] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:52:31 TP3] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:52:31 TP1] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:52:31 TP2] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:32] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:32 TP0] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:32 TP2] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:32 TP3] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:32 TP1] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:52:32 TP2] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:32 TP2] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:32] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:32 TP2] Init torch distributed begin.
+[2026-05-19 22:52:32 TP0] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:33 TP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:33 TP0] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:33 TP0] Init torch distributed begin.
+[2026-05-19 22:52:33 TP3] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:33 TP1] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:52:33 TP3] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:33 TP3] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:33 TP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-05-19 22:52:33 TP1] Hybrid swa model: self.hf_config.architectures=['DeepseekV4ForCausalLM']
+[2026-05-19 22:52:33 TP3] Init torch distributed begin.
+[2026-05-19 22:52:33 TP1] Init torch distributed begin.
+[2026-05-19 22:52:34 TP0] sglang is using nccl==2.28.9
+[2026-05-19 22:52:41 TP0] Custom allreduce v2 initialized successfully (rank-check failed: tensor model parallel group is not initialized)
+[2026-05-19 22:52:41 TP0] Init torch distributed ends. elapsed=8.02 s, mem usage=1.46 GB
+[2026-05-19 22:52:41 TP3] Init torch distributed ends. elapsed=7.62 s, mem usage=1.34 GB
+[2026-05-19 22:52:41 TP2] Init torch distributed ends. elapsed=8.33 s, mem usage=1.49 GB
+[2026-05-19 22:52:41 TP1] Init torch distributed ends. elapsed=7.61 s, mem usage=1.49 GB
+[2026-05-19 22:52:42 TP1] Load weight begin. avail mem=176.21 GB
+[2026-05-19 22:52:42 TP3] Load weight begin. avail mem=176.37 GB
+[2026-05-19 22:52:42 TP0] Load weight begin. avail mem=176.24 GB
+[2026-05-19 22:52:42 TP0] Detected fp8 checkpoint.
+[2026-05-19 22:52:42 TP0] DeepSeek V4 requires different clamping for shared and routed experts. Shared experts fusion optimization is disabled.
+[2026-05-19 22:52:42 TP2] Load weight begin. avail mem=176.21 GB
+[2026-05-19 22:52:43 TP0] Found local HF snapshot for deepseek-ai/DeepSeek-V4-Flash at /cache/hf/models--deepseek-ai--DeepSeek-V4-Flash/snapshots/6976c7ff1b30a1b2cb7805021b8ba4684041f136; skipping download.
+Multi-thread loading shards:   0% Completed | 0/46 [00:00<?, ?it/s]Multi-thread loading shards:   4% Completed | 2/46 [00:02<00:57,  1.32s/it]Multi-thread loading shards:   7% Completed | 3/46 [00:03<00:45,  1.06s/it]Multi-thread loading shards:   9% Completed | 4/46 [00:04<00:39,  1.08it/s]Multi-thread loading shards:  11% Completed | 5/46 [00:05<00:38,  1.06it/s]Multi-thread loading shards:  13% Completed | 6/46 [00:05<00:34,  1.14it/s]Multi-thread loading shards:  15% Completed | 7/46 [00:06<00:33,  1.15it/s]Multi-thread loading shards:  17% Completed | 8/46 [00:07<00:31,  1.22it/s]Multi-thread loading shards:  20% Completed | 9/46 [00:07<00:27,  1.34it/s]Multi-thread loading shards:  22% Completed | 10/46 [00:08<00:26,  1.33it/s]Multi-thread loading shards:  24% Completed | 11/46 [00:09<00:25,  1.38it/s]Multi-thread loading shards:  26% Completed | 12/46 [00:09<00:23,  1.44it/s]Multi-thread loading shards:  28% Completed | 13/46 [00:10<00:22,  1.50it/s]Multi-thread loading shards:  30% Completed | 14/46 [00:10<00:17,  1.80it/s]Multi-thread loading shards:  33% Completed | 15/46 [00:11<00:19,  1.58it/s]Multi-thread loading shards:  35% Completed | 16/46 [00:11<00:15,  1.90it/s]Multi-thread loading shards:  37% Completed | 17/46 [00:12<00:17,  1.70it/s]Multi-thread loading shards:  39% Completed | 18/46 [00:13<00:14,  1.93it/s]Multi-thread loading shards:  41% Completed | 19/46 [00:13<00:16,  1.67it/s]Multi-thread loading shards:  43% Completed | 20/46 [00:14<00:15,  1.67it/s]Multi-thread loading shards:  46% Completed | 21/46 [00:15<00:15,  1.66it/s]Multi-thread loading shards:  48% Completed | 22/46 [00:15<00:15,  1.55it/s]Multi-thread loading shards:  50% Completed | 23/46 [00:16<00:16,  1.38it/s]Multi-thread loading shards:  52% Completed | 24/46 [00:17<00:16,  1.35it/s]Multi-thread loading shards:  54% Completed | 25/46 [00:18<00:17,  1.20it/s]Multi-thread loading shards:  57% Completed | 26/46 [00:19<00:18,  1.09it/s]Multi-thread loading shards:  59% Completed | 27/46 [00:20<00:17,  1.09it/s]Multi-thread loading shards:  61% Completed | 28/46 [00:21<00:14,  1.23it/s]Multi-thread loading shards:  63% Completed | 29/46 [00:21<00:13,  1.26it/s]Multi-thread loading shards:  65% Completed | 30/46 [00:22<00:11,  1.37it/s]Multi-thread loading shards:  67% Completed | 31/46 [00:23<00:10,  1.43it/s]Multi-thread loading shards:  70% Completed | 32/46 [00:23<00:07,  1.87it/s]Multi-thread loading shards:  74% Completed | 34/46 [00:23<00:03,  3.02it/s]Multi-thread loading shards:  76% Completed | 35/46 [00:23<00:03,  3.46it/s]Multi-thread loading shards:  78% Completed | 36/46 [00:23<00:02,  3.97it/s]Multi-thread loading shards:  80% Completed | 37/46 [00:23<00:01,  4.68it/s]Multi-thread loading shards:  83% Completed | 38/46 [00:23<00:01,  5.32it/s]Multi-thread loading shards:  87% Completed | 40/46 [00:24<00:00,  7.39it/s]Multi-thread loading shards:  89% Completed | 41/46 [00:26<00:03,  1.46it/s]Multi-thread loading shards:  91% Completed | 42/46 [00:27<00:02,  1.47it/s]Multi-thread loading shards:  96% Completed | 44/46 [00:27<00:00,  2.37it/s]Multi-thread loading shards: 100% Completed | 46/46 [00:28<00:00,  2.44it/s]Multi-thread loading shards: 100% Completed | 46/46 [00:28<00:00,  1.64it/s]
+[2026-05-19 22:53:13 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.0.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.1.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.2.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.3.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.4.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.5.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.6.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.7.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.8.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.9.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.10.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.11.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.12.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.13.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.14.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.15.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.16.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.17.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.18.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.19.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.20.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.21.mlp.experts)...
+[2026-05-19 22:53:14 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.22.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.23.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.24.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.25.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.26.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.27.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.28.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.29.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.30.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.31.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.32.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.33.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.34.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.35.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.36.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.37.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.38.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.39.mlp.experts)...
+[2026-05-19 22:53:15 TP3] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0. This may lead to less accurate results!
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.40.mlp.experts)...
+[2026-05-19 22:53:15 TP3] Load weight end. elapsed=32.85 s, type=DeepseekV4ForCausalLM, quant=fp8, fmt=e4m3, avail mem=137.64 GB, mem usage=38.73 GB.
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.41.mlp.experts)...
+[2026-05-19 22:53:15 TP0] Shuffling FP4 expert weights for TRT-LLM MxFP4 kernel (layer: model.layers.42.mlp.experts)...
+[2026-05-19 22:53:15 TP2] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0. This may lead to less accurate results!
+[2026-05-19 22:53:15 TP2] Load weight end. elapsed=32.88 s, type=DeepseekV4ForCausalLM, quant=fp8, fmt=e4m3, avail mem=137.73 GB, mem usage=38.48 GB.
+[2026-05-19 22:53:15 TP0] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0. This may lead to less accurate results!
+[2026-05-19 22:53:15 TP0] Load weight end. elapsed=32.90 s, type=DeepseekV4ForCausalLM, quant=fp8, fmt=e4m3, avail mem=137.58 GB, mem usage=38.67 GB.
+[2026-05-19 22:53:15 TP1] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0. This may lead to less accurate results!
+[2026-05-19 22:53:15 TP1] Load weight end. elapsed=32.94 s, type=DeepseekV4ForCausalLM, quant=fp8, fmt=e4m3, avail mem=137.73 GB, mem usage=38.48 GB.
+[2026-05-19 22:53:15 TP0] Using KV cache dtype: torch.float8_e4m3fn
+[2026-05-19 22:53:15 TP0] DSV4 memory calculation: bytes_per_full_token=15955.85, available_bytes=119.95 GB, full_token=8071936
+[2026-05-19 22:53:15 TP0] DSV4 pool sizes: full=8071936, swa=807168, c4=2017984, c128=63062, c4_state=50448, c128_state=807168
+[2026-05-19 22:53:15 TP2] DSV4 memory calculation: bytes_per_full_token=15955.85, available_bytes=119.95 GB, full_token=8071936
+[2026-05-19 22:53:15 TP1] DSV4 memory calculation: bytes_per_full_token=15955.85, available_bytes=119.95 GB, full_token=8071936
+[2026-05-19 22:53:15 TP2] DSV4 pool sizes: full=8071936, swa=807168, c4=2017984, c128=63062, c4_state=50448, c128_state=807168
+[2026-05-19 22:53:15 TP1] DSV4 pool sizes: full=8071936, swa=807168, c4=2017984, c128=63062, c4_state=50448, c128_state=807168
+[2026-05-19 22:53:15 TP3] DSV4 memory calculation: bytes_per_full_token=15955.85, available_bytes=119.95 GB, full_token=8071936
+[2026-05-19 22:53:15 TP3] DSV4 pool sizes: full=8071936, swa=807168, c4=2017984, c128=63062, c4_state=50448, c128_state=807168
+[2026-05-19 22:53:15 TP1] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=256 swa_size=807168 c4_size=2017984 c4_logical_size=2017984 c128_size=63062 c4_state_pool_size=50448 c128_state_pool_size=807168
+[2026-05-19 22:53:15 TP0] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=256 swa_size=807168 c4_size=2017984 c4_logical_size=2017984 c128_size=63062 c4_state_pool_size=50448 c128_state_pool_size=807168
+[2026-05-19 22:53:15 TP2] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=256 swa_size=807168 c4_size=2017984 c4_logical_size=2017984 c128_size=63062 c4_state_pool_size=50448 c128_state_pool_size=807168
+[2026-05-19 22:53:15 TP3] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=256 swa_size=807168 c4_size=2017984 c4_logical_size=2017984 c128_size=63062 c4_state_pool_size=50448 c128_state_pool_size=807168
+[2026-05-19 22:53:15 TP1] Memory pool end. avail mem=16.70 GB
+[2026-05-19 22:53:15 TP0] Memory pool end. avail mem=16.70 GB
+[2026-05-19 22:53:15 TP3] Memory pool end. avail mem=16.81 GB
+[2026-05-19 22:53:15 TP2] Memory pool end. avail mem=16.70 GB
+[2026-05-19 22:53:15 TP2] Capture cuda graph begin. This can take up to several minutes. avail mem=16.64 GB
+[2026-05-19 22:53:15 TP1] Capture cuda graph begin. This can take up to several minutes. avail mem=16.64 GB
+[2026-05-19 22:53:15 TP0] Capture cuda graph begin. This can take up to several minutes. avail mem=16.64 GB
+[2026-05-19 22:53:15 TP3] Capture cuda graph begin. This can take up to several minutes. avail mem=16.75 GB
+[2026-05-19 22:53:15 TP0] Capture cuda graph bs [1, 2, 4, 8, 12, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256]
+/usr/local/lib/python3.12/dist-packages/torch/profiler/profiler.py:224: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+WARNING:2026-05-19 22:53:16 88:88 init.cpp:116] function cbapi->getCuptiStatus() failed with error CUPTI_ERROR_MULTIPLE_SUBSCRIBERS_NOT_SUPPORTED (39)
+WARNING:2026-05-19 22:53:16 88:88 init.cpp:117] CUPTI initialization failed - CUDA profiler activities will be missing
+INFO:2026-05-19 22:53:16 88:88 init.cpp:119] If you see CUPTI_ERROR_INSUFFICIENT_PRIVILEGES, refer to https://developer.nvidia.com/nvidia-development-tools-solutions-err-nvgpuctrperm-cupti
+/usr/local/lib/python3.12/dist-packages/torch/profiler/profiler.py:224: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+WARNING:2026-05-19 22:53:16 87:87 init.cpp:116] function cbapi->getCuptiStatus() failed with error CUPTI_ERROR_MULTIPLE_SUBSCRIBERS_NOT_SUPPORTED (39)
+WARNING:2026-05-19 22:53:16 87:87 init.cpp:117] CUPTI initialization failed - CUDA profiler activities will be missing
+INFO:2026-05-19 22:53:16 87:87 init.cpp:119] If you see CUPTI_ERROR_INSUFFICIENT_PRIVILEGES, refer to https://developer.nvidia.com/nvidia-development-tools-solutions-err-nvgpuctrperm-cupti
+/usr/local/lib/python3.12/dist-packages/torch/profiler/profiler.py:224: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+WARNING:2026-05-19 22:53:16 86:86 init.cpp:116] function cbapi->getCuptiStatus() failed with error CUPTI_ERROR_MULTIPLE_SUBSCRIBERS_NOT_SUPPORTED (39)
+WARNING:2026-05-19 22:53:16 86:86 init.cpp:117] CUPTI initialization failed - CUDA profiler activities will be missing
+INFO:2026-05-19 22:53:16 86:86 init.cpp:119] If you see CUPTI_ERROR_INSUFFICIENT_PRIVILEGES, refer to https://developer.nvidia.com/nvidia-development-tools-solutions-err-nvgpuctrperm-cupti
+  0%|          | 0/36 [00:00<?, ?it/s]Capturing batches (bs=256 avail_mem=16.51 GB):   0%|          | 0/36 [00:00<?, ?it/s]/usr/local/lib/python3.12/dist-packages/torch/profiler/profiler.py:224: UserWarning: Warning: Profiler clears events at the end of each cycle.Only events from the current cycle will be reported.To keep events across cycles, set acc_events=True.
+  _warn_once(
+WARNING:2026-05-19 22:53:16 89:89 init.cpp:116] function cbapi->getCuptiStatus() failed with error CUPTI_ERROR_MULTIPLE_SUBSCRIBERS_NOT_SUPPORTED (39)
+WARNING:2026-05-19 22:53:16 89:89 init.cpp:117] CUPTI initialization failed - CUDA profiler activities will be missing
+INFO:2026-05-19 22:53:16 89:89 init.cpp:119] If you see CUPTI_ERROR_INSUFFICIENT_PRIVILEGES, refer to https://developer.nvidia.com/nvidia-development-tools-solutions-err-nvgpuctrperm-cupti
+[2026-05-19 22:53:28 TP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-05-19 22:53:28 TP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16> N=1536, K=4096, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-05-19 22:53:28 TP0] Required memory for warmup: 0.115234375GB, Available memory: 16.385498046875GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A2026-05-19 22:53:29,639 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-05-19 22:53:29 TP1] Unexpected error during package walk: cutlass.cute.experimental
+2026-05-19 22:53:29,640 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-05-19 22:53:29 TP3] Unexpected error during package walk: cutlass.cute.experimental
+2026-05-19 22:53:29,700 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-05-19 22:53:29 TP2] Unexpected error during package walk: cutlass.cute.experimental
+
+DeepGEMM warmup:   0%|          | 1/16384 [00:01<7:15:55,  1.60s/it][A
+DeepGEMM warmup:   2%|▏         | 257/16384 [00:03<02:50, 94.55it/s][A
+DeepGEMM warmup:   2%|▏         | 385/16384 [00:04<03:02, 87.51it/s][A
+DeepGEMM warmup:   4%|▎         | 577/16384 [00:06<02:37, 100.10it/s][A
+DeepGEMM warmup:   4%|▍         | 641/16384 [00:08<03:20, 78.66it/s] [A
+DeepGEMM warmup:   5%|▍         | 769/16384 [00:09<03:17, 79.16it/s][A
+DeepGEMM warmup:   6%|▌         | 961/16384 [00:11<02:47, 92.03it/s][A
+DeepGEMM warmup:   7%|▋         | 1153/16384 [00:12<02:31, 100.30it/s][A
+DeepGEMM warmup:   8%|▊         | 1345/16384 [00:14<02:22, 105.89it/s][A
+DeepGEMM warmup:   9%|▉         | 1537/16384 [00:16<02:15, 109.75it/s][A
+DeepGEMM warmup:  11%|█         | 1729/16384 [00:17<02:10, 112.59it/s][A
+DeepGEMM warmup:  11%|█         | 1761/16384 [00:19<02:53, 84.35it/s] [A
+DeepGEMM warmup:  12%|█▏        | 1921/16384 [00:20<02:42, 88.81it/s][A
+DeepGEMM warmup:  13%|█▎        | 2113/16384 [00:22<02:26, 97.59it/s][A
+DeepGEMM warmup:  13%|█▎        | 2177/16384 [00:24<02:57, 80.23it/s][A
+DeepGEMM warmup:  14%|█▍        | 2305/16384 [00:25<02:55, 80.34it/s][A
+DeepGEMM warmup:  15%|█▌        | 2497/16384 [00:27<02:31, 91.71it/s][A
+DeepGEMM warmup:  16%|█▋        | 2689/16384 [00:29<02:16, 100.15it/s][A
+DeepGEMM warmup:  26%|██▋       | 4307/16384 [00:29<00:23, 517.59it/s][A
+DeepGEMM warmup:  30%|███       | 4993/16384 [00:30<00:23, 477.23it/s][A
+DeepGEMM warmup:  40%|████      | 6613/16384 [00:30<00:10, 975.83it/s][A
+DeepGEMM warmup:  50%|█████     | 8247/16384 [00:30<00:04, 1641.66it/s][A
+DeepGEMM warmup:  60%|██████    | 9890/16384 [00:31<00:02, 2503.80it/s][A
+DeepGEMM warmup:  70%|██████▉   | 11466/16384 [00:31<00:01, 3522.96it/s][A
+DeepGEMM warmup:  80%|███████▉  | 13070/16384 [00:31<00:00, 4761.56it/s][A
+DeepGEMM warmup:  89%|████████▉ | 14562/16384 [00:31<00:00, 6019.71it/s][A
+DeepGEMM warmup:  98%|█████████▊| 15989/16384 [00:31<00:00, 7188.39it/s][ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:31<00:00, 519.84it/s] 
+2026-05-19 22:53:59,757 - CUTE_DSL - WARNING - [handle_import_error] - Unexpected error during package walk: cutlass.cute.experimental
+[2026-05-19 22:53:59 TP0] Unexpected error during package walk: cutlass.cute.experimental
+[2026-05-19 22:53:59 TP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-05-19 22:53:59 TP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16> N=8192, K=1024, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-05-19 22:53:59 TP0] Required memory for warmup: 0.2734375GB, Available memory: 16.385498046875GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A
+DeepGEMM warmup:  10%|▉         | 1622/16384 [00:00<00:00, 16216.42it/s][A
+DeepGEMM warmup:  20%|█▉        | 3244/16384 [00:00<00:00, 16109.29it/s][A
+DeepGEMM warmup:  30%|██▉       | 4855/16384 [00:00<00:00, 16084.98it/s][A
+DeepGEMM warmup:  39%|███▉      | 6464/16384 [00:00<00:00, 15925.26it/s][A
+DeepGEMM warmup:  49%|████▉     | 8057/16384 [00:00<00:00, 15141.66it/s][A
+DeepGEMM warmup:  58%|█████▊    | 9578/16384 [00:00<00:00, 13825.51it/s][A
+DeepGEMM warmup:  67%|██████▋   | 10981/16384 [00:00<00:00, 12623.21it/s][A
+DeepGEMM warmup:  75%|███████▍  | 12269/16384 [00:00<00:00, 11631.63it/s][A
+DeepGEMM warmup:  82%|████████▏ | 13456/16384 [00:01<00:00, 10802.25it/s][A
+DeepGEMM warmup:  89%|████████▉ | 14556/16384 [00:01<00:00, 10093.11it/s][A
+DeepGEMM warmup:  95%|█████████▌| 15580/16384 [00:01<00:00, 9476.92it/s] [ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 11663.65it/s]
+[2026-05-19 22:54:02 TP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-05-19 22:54:02 TP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16> N=4096, K=2048, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-05-19 22:54:02 TP0] Required memory for warmup: 0.1640625GB, Available memory: 16.383544921875GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A
+DeepGEMM warmup:  10%|▉         | 1565/16384 [00:00<00:00, 15649.23it/s][A
+DeepGEMM warmup:  19%|█▉        | 3156/16384 [00:00<00:00, 15797.69it/s][A
+DeepGEMM warmup:  29%|██▉       | 4739/16384 [00:00<00:00, 15811.48it/s][A
+DeepGEMM warmup:  39%|███▊      | 6338/16384 [00:00<00:00, 15878.56it/s][A
+DeepGEMM warmup:  48%|████▊     | 7926/16384 [00:00<00:00, 15854.31it/s][A
+DeepGEMM warmup:  58%|█████▊    | 9525/16384 [00:00<00:00, 15900.02it/s][A
+DeepGEMM warmup:  68%|██████▊   | 11116/16384 [00:00<00:00, 14976.76it/s][A
+DeepGEMM warmup:  77%|███████▋  | 12624/16384 [00:00<00:00, 14201.11it/s][A
+DeepGEMM warmup:  86%|████████▌ | 14057/16384 [00:00<00:00, 13227.04it/s][A
+DeepGEMM warmup:  94%|█████████▍| 15397/16384 [00:01<00:00, 12318.27it/s][ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 13753.39it/s]
+[2026-05-19 22:54:03 TP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-05-19 22:54:03 TP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16> N=1024, K=4096, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-05-19 22:54:03 TP0] Required memory for warmup: 0.09765625GB, Available memory: 16.383544921875GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A
+DeepGEMM warmup:   1%|          | 129/16384 [00:01<03:22, 80.34it/s][A
+DeepGEMM warmup:   9%|▉         | 1441/16384 [00:03<00:29, 501.32it/s][A
+DeepGEMM warmup:  18%|█▊        | 2930/16384 [00:03<00:11, 1200.44it/s][A
+DeepGEMM warmup:  28%|██▊       | 4535/16384 [00:03<00:05, 2164.21it/s][A
+DeepGEMM warmup:  38%|███▊      | 6146/16384 [00:03<00:03, 3347.51it/s][A
+DeepGEMM warmup:  47%|████▋     | 7756/16384 [00:03<00:01, 4726.20it/s][A
+DeepGEMM warmup:  57%|█████▋    | 9357/16384 [00:03<00:01, 6235.12it/s][A
+DeepGEMM warmup:  67%|██████▋   | 10949/16384 [00:03<00:00, 7788.41it/s][A
+DeepGEMM warmup:  77%|███████▋  | 12551/16384 [00:03<00:00, 9322.67it/s][A
+DeepGEMM warmup:  86%|████████▋ | 14164/16384 [00:04<00:00, 10753.97it/s][A
+DeepGEMM warmup:  96%|█████████▋| 15771/16384 [00:04<00:00, 11981.58it/s][ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:04<00:00, 3884.59it/s] 
+[2026-05-19 22:54:08 TP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-05-19 22:54:08 TP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16> N=4096, K=512, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-05-19 22:54:08 TP0] Required memory for warmup: 0.134765625GB, Available memory: 16.385498046875GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A
+DeepGEMM warmup:  10%|▉         | 1585/16384 [00:00<00:00, 15841.25it/s][A
+DeepGEMM warmup:  19%|█▉        | 3181/16384 [00:00<00:00, 15910.49it/s][A
+DeepGEMM warmup:  29%|██▉       | 4782/16384 [00:00<00:00, 15953.48it/s][A
+DeepGEMM warmup:  39%|███▉      | 6388/16384 [00:00<00:00, 15993.20it/s][A
+DeepGEMM warmup:  49%|████▉     | 7992/16384 [00:00<00:00, 16006.87it/s][A
+DeepGEMM warmup:  59%|█████▊    | 9609/16384 [00:00<00:00, 16060.09it/s][A
+DeepGEMM warmup:  68%|██████▊   | 11217/16384 [00:00<00:00, 16065.40it/s][A
+DeepGEMM warmup:  78%|███████▊  | 12824/16384 [00:00<00:00, 16053.58it/s][A
+DeepGEMM warmup:  88%|████████▊ | 14441/16384 [00:00<00:00, 16088.20it/s][A
+DeepGEMM warmup:  98%|█████████▊| 16050/16384 [00:01<00:00, 15460.31it/s][ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 15772.42it/s]
+Capturing batches (bs=256 avail_mem=16.51 GB):   3%|▎         | 1/36 [02:17<1:20:13, 137.54s/it]Capturing batches (bs=248 avail_mem=15.96 GB):   3%|▎         | 1/36 [02:17<1:20:13, 137.54s/it]Capturing batches (bs=248 avail_mem=15.96 GB):   6%|▌         | 2/36 [02:19<32:36, 57.54s/it]   Capturing batches (bs=240 avail_mem=15.94 GB):   6%|▌         | 2/36 [02:19<32:36, 57.54s/it]Capturing batches (bs=240 avail_mem=15.94 GB):   8%|▊         | 3/36 [02:19<17:20, 31.54s/it]Capturing batches (bs=232 avail_mem=15.94 GB):   8%|▊         | 3/36 [02:19<17:20, 31.54s/it]Capturing batches (bs=232 avail_mem=15.94 GB):  11%|█         | 4/36 [02:20<10:17, 19.31s/it]Capturing batches (bs=224 avail_mem=15.92 GB):  11%|█         | 4/36 [02:20<10:17, 19.31s/it]Capturing batches (bs=224 avail_mem=15.92 GB):  14%|█▍        | 5/36 [02:20<06:29, 12.56s/it]Capturing batches (bs=216 avail_mem=15.92 GB):  14%|█▍        | 5/36 [02:20<06:29, 12.56s/it]Capturing batches (bs=216 avail_mem=15.92 GB):  17%|█▋        | 6/36 [02:21<04:14,  8.49s/it]Capturing batches (bs=208 avail_mem=15.91 GB):  17%|█▋        | 6/36 [02:21<04:14,  8.49s/it]Capturing batches (bs=208 avail_mem=15.91 GB):  19%|█▉        | 7/36 [02:22<02:51,  5.91s/it]Capturing batches (bs=200 avail_mem=15.90 GB):  19%|█▉        | 7/36 [02:22<02:51,  5.91s/it]Capturing batches (bs=200 avail_mem=15.90 GB):  22%|██▏       | 8/36 [02:23<02:07,  4.55s/it]Capturing batches (bs=192 avail_mem=15.89 GB):  22%|██▏       | 8/36 [02:23<02:07,  4.55s/it]Capturing batches (bs=192 avail_mem=15.89 GB):  25%|██▌       | 9/36 [02:32<02:35,  5.76s/it]Capturing batches (bs=184 avail_mem=15.88 GB):  25%|██▌       | 9/36 [02:32<02:35,  5.76s/it]Capturing batches (bs=184 avail_mem=15.88 GB):  28%|██▊       | 10/36 [02:32<01:48,  4.17s/it]Capturing batches (bs=176 avail_mem=15.87 GB):  28%|██▊       | 10/36 [02:32<01:48,  4.17s/it]Capturing batches (bs=176 avail_mem=15.87 GB):  31%|███       | 11/36 [02:33<01:16,  3.06s/it]Capturing batches (bs=168 avail_mem=15.86 GB):  31%|███       | 11/36 [02:33<01:16,  3.06s/it]Capturing batches (bs=168 avail_mem=15.86 GB):  33%|███▎      | 12/36 [02:33<00:55,  2.31s/it]Capturing batches (bs=160 avail_mem=15.85 GB):  33%|███▎      | 12/36 [02:33<00:55,  2.31s/it]Capturing batches (bs=160 avail_mem=15.85 GB):  36%|███▌      | 13/36 [02:34<00:41,  1.79s/it]Capturing batches (bs=152 avail_mem=15.84 GB):  36%|███▌      | 13/36 [02:34<00:41,  1.79s/it]Capturing batches (bs=152 avail_mem=15.84 GB):  39%|███▉      | 14/36 [02:35<00:31,  1.42s/it]Capturing batches (bs=144 avail_mem=15.83 GB):  39%|███▉      | 14/36 [02:35<00:31,  1.42s/it]Capturing batches (bs=144 avail_mem=15.83 GB):  42%|████▏     | 15/36 [02:38<00:42,  2.02s/it]Capturing batches (bs=136 avail_mem=15.82 GB):  42%|████▏     | 15/36 [02:38<00:42,  2.02s/it]Capturing batches (bs=136 avail_mem=15.82 GB):  44%|████▍     | 16/36 [02:38<00:31,  1.57s/it]Capturing batches (bs=128 avail_mem=15.81 GB):  44%|████▍     | 16/36 [02:38<00:31,  1.57s/it]Capturing batches (bs=128 avail_mem=15.81 GB):  47%|████▋     | 17/36 [02:46<01:03,  3.32s/it]Capturing batches (bs=120 avail_mem=15.57 GB):  47%|████▋     | 17/36 [02:46<01:03,  3.32s/it]Capturing batches (bs=120 avail_mem=15.57 GB):  50%|█████     | 18/36 [02:46<00:44,  2.50s/it]Capturing batches (bs=112 avail_mem=15.55 GB):  50%|█████     | 18/36 [02:46<00:44,  2.50s/it]Capturing batches (bs=112 avail_mem=15.55 GB):  53%|█████▎    | 19/36 [02:47<00:32,  1.92s/it]Capturing batches (bs=104 avail_mem=15.53 GB):  53%|█████▎    | 19/36 [02:47<00:32,  1.92s/it]Capturing batches (bs=104 avail_mem=15.53 GB):  56%|█████▌    | 20/36 [02:48<00:24,  1.51s/it]Capturing batches (bs=96 avail_mem=15.51 GB):  56%|█████▌    | 20/36 [02:48<00:24,  1.51s/it] Capturing batches (bs=96 avail_mem=15.51 GB):  58%|█████▊    | 21/36 [02:48<00:18,  1.25s/it]Capturing batches (bs=88 avail_mem=15.49 GB):  58%|█████▊    | 21/36 [02:48<00:18,  1.25s/it]Capturing batches (bs=88 avail_mem=15.49 GB):  61%|██████    | 22/36 [02:49<00:14,  1.06s/it]Capturing batches (bs=80 avail_mem=15.48 GB):  61%|██████    | 22/36 [02:49<00:14,  1.06s/it]Capturing batches (bs=80 avail_mem=15.48 GB):  64%|██████▍   | 23/36 [02:49<00:11,  1.09it/s]Capturing batches (bs=72 avail_mem=15.46 GB):  64%|██████▍   | 23/36 [02:49<00:11,  1.09it/s]Capturing batches (bs=72 avail_mem=15.46 GB):  67%|██████▋   | 24/36 [02:50<00:10,  1.16it/s]Capturing batches (bs=64 avail_mem=15.44 GB):  67%|██████▋   | 24/36 [02:50<00:10,  1.16it/s]Capturing batches (bs=64 avail_mem=15.44 GB):  69%|██████▉   | 25/36 [02:51<00:08,  1.27it/s]Capturing batches (bs=56 avail_mem=15.41 GB):  69%|██████▉   | 25/36 [02:51<00:08,  1.27it/s]Capturing batches (bs=56 avail_mem=15.41 GB):  72%|███████▏  | 26/36 [02:51<00:07,  1.37it/s]Capturing batches (bs=48 avail_mem=15.40 GB):  72%|███████▏  | 26/36 [02:51<00:07,  1.37it/s]Capturing batches (bs=48 avail_mem=15.40 GB):  75%|███████▌  | 27/36 [02:52<00:06,  1.43it/s]Capturing batches (bs=40 avail_mem=15.38 GB):  75%|███████▌  | 27/36 [02:52<00:06,  1.43it/s]Capturing batches (bs=40 avail_mem=15.38 GB):  78%|███████▊  | 28/36 [02:53<00:05,  1.50it/s]Capturing batches (bs=32 avail_mem=15.36 GB):  78%|███████▊  | 28/36 [02:53<00:05,  1.50it/s]Capturing batches (bs=32 avail_mem=15.36 GB):  81%|████████  | 29/36 [02:53<00:04,  1.46it/s]Capturing batches (bs=24 avail_mem=15.34 GB):  81%|████████  | 29/36 [02:53<00:04,  1.46it/s]Capturing batches (bs=24 avail_mem=15.34 GB):  83%|████████▎ | 30/36 [02:54<00:03,  1.52it/s]Capturing batches (bs=16 avail_mem=15.32 GB):  83%|████████▎ | 30/36 [02:54<00:03,  1.52it/s]Capturing batches (bs=16 avail_mem=15.32 GB):  86%|████████▌ | 31/36 [02:54<00:03,  1.57it/s]Capturing batches (bs=12 avail_mem=15.30 GB):  86%|████████▌ | 31/36 [02:54<00:03,  1.57it/s]Capturing batches (bs=12 avail_mem=15.30 GB):  89%|████████▉ | 32/36 [02:55<00:02,  1.46it/s]Capturing batches (bs=8 avail_mem=15.28 GB):  89%|████████▉ | 32/36 [02:55<00:02,  1.46it/s] Capturing batches (bs=8 avail_mem=15.28 GB):  92%|█████████▏| 33/36 [02:56<00:01,  1.54it/s]Capturing batches (bs=4 avail_mem=15.26 GB):  92%|█████████▏| 33/36 [02:56<00:01,  1.54it/s]Capturing batches (bs=4 avail_mem=15.26 GB):  94%|█████████▍| 34/36 [02:56<00:01,  1.58it/s]Capturing batches (bs=2 avail_mem=15.24 GB):  94%|█████████▍| 34/36 [02:56<00:01,  1.58it/s]Capturing batches (bs=2 avail_mem=15.24 GB):  97%|█████████▋| 35/36 [02:57<00:00,  1.65it/s]Capturing batches (bs=1 avail_mem=15.22 GB):  97%|█████████▋| 35/36 [02:57<00:00,  1.65it/s]Capturing batches (bs=1 avail_mem=15.22 GB): 100%|██████████| 36/36 [02:59<00:00,  1.10it/s]Capturing batches (bs=1 avail_mem=15.22 GB): 100%|██████████| 36/36 [02:59<00:00,  4.97s/it]
+[2026-05-19 22:56:35 TP0] Registering 0 cuda graph addresses
+[2026-05-19 22:57:38 TP3] Sorted by CUDA Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                            aten::slice         0.01%     947.258us         0.01%       1.158ms       4.594us           252                                                [[256], [], [], [], []]  
+                                       aten::as_strided         0.00%     231.607us         0.00%     231.607us       0.708us           327                                                    [[256], [], [], []]  
+                                            aten::alias         0.00%       5.990us         0.00%       5.990us       5.990us             1                                                             [[3, 256]]  
+                                            aten::slice         0.00%      56.260us         0.00%      71.129us       1.976us            36                                        [[256, 129280], [], [], [], []]  
+                                       aten::as_strided         0.00%      14.869us         0.00%      14.869us       0.413us            36                                            [[256, 129280], [], [], []]  
+                                       aten::lift_fresh         0.00%     158.537us         0.02%       3.627ms      43.184us            84                                                                   [[]]  
+                                            aten::fill_         0.01%       1.966ms         0.01%       2.129ms      19.528us           109                                                              [[1], []]  
+                                             aten::item         0.00%     136.228us         0.02%       2.319ms      32.214us            72                                                                   [[]]  
+                              aten::_local_scalar_dense         0.01%       2.183ms         0.01%       2.183ms      30.322us            72                                                                   [[]]  
+                                              aten::sum         0.00%     530.292us         0.00%     625.811us     625.811us             1                                                            [[256], []]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.368s
+
+
+Sorted by CPU Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                            sglang::outplace_all_reduce        25.89%        3.979s        25.89%        3.979s      15.246ms           261                                                  [[256, 4096], [], []]  
+                                                 dynamo         0.06%       8.734ms        14.00%        2.151s     358.476ms             6                                                                     []  
+                                   entire_frame_compile         0.00%     179.740us        13.94%        2.142s     356.982ms             6                                                                     []  
+                  _compile.compile_inner (dynamo_timed)         0.09%      14.585ms        13.94%        2.142s     356.946ms             6                                                                     []  
+                                      compile_attempt_0         0.00%     126.429us        13.70%        2.106s     350.996ms             6                                                                     []  
+                       compile_attempt_0 (dynamo_timed)         0.08%      12.998ms        13.70%        2.106s     350.964ms             6                                                                     []  
+                                        backend_compile         0.00%     106.079us        12.95%        1.991s     663.518ms             3                                                                     []  
+          OutputGraph.call_user_compiler (dynamo_timed)         1.70%     260.538ms        12.95%        1.990s     663.471ms             3                                                                     []  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.45%        1.607s        10.45%        1.607s       8.368ms           192          [[256, 1024], [256, 2], [8192, 1024], [8192, 2], [256, 8192]]  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.41%        1.600s        10.41%        1.600s      12.403ms           129          [[256, 4096], [256, 8], [1536, 4096], [1536, 8], [256, 1536]]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.368s
+
+
+Memory Usage is saved to cuda_graph_runner_memory_usage.pickle
+
+[2026-05-19 22:57:38 TP3] Capture cuda graph end. Time elapsed: 262.64 s. mem usage=1.44 GB. avail mem=15.32 GB.
+[2026-05-19 22:57:38 TP3] Disable piecewise CUDA graph because --disable-piecewise-cuda-graph is set
+[2026-05-19 22:57:39 TP3] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:57:39 TP1] Sorted by CUDA Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                            aten::slice         0.01%     908.198us         0.01%       1.107ms       4.394us           252                                                [[256], [], [], [], []]  
+                                       aten::as_strided         0.00%     223.805us         0.00%     223.805us       0.684us           327                                                    [[256], [], [], []]  
+                                            aten::alias         0.00%       6.370us         0.00%       6.370us       6.370us             1                                                             [[3, 256]]  
+                                            aten::slice         0.00%      64.776us         0.00%      79.856us       2.218us            36                                        [[256, 129280], [], [], [], []]  
+                                       aten::as_strided         0.00%      15.080us         0.00%      15.080us       0.419us            36                                            [[256, 129280], [], [], []]  
+                                       aten::lift_fresh         0.00%     160.460us         0.02%       3.636ms      43.287us            84                                                                   [[]]  
+                                            aten::fill_         0.01%       1.975ms         0.01%       2.133ms      19.567us           109                                                              [[1], []]  
+                                             aten::item         0.00%     132.447us         0.02%       2.352ms      32.663us            72                                                                   [[]]  
+                              aten::_local_scalar_dense         0.01%       2.219ms         0.01%       2.219ms      30.823us            72                                                                   [[]]  
+                                              aten::sum         0.00%     536.682us         0.00%     634.091us     634.091us             1                                                            [[256], []]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.372s
+
+
+Sorted by CPU Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                            sglang::outplace_all_reduce        26.40%        4.059s        26.40%        4.059s      15.551ms           261                                                  [[256, 4096], [], []]  
+                                                 dynamo         0.06%       8.843ms        13.57%        2.086s     347.655ms             6                                                                     []  
+                                   entire_frame_compile         0.00%     182.509us        13.51%        2.077s     346.145ms             6                                                                     []  
+                  _compile.compile_inner (dynamo_timed)         0.10%      15.177ms        13.51%        2.077s     346.108ms             6                                                                     []  
+                                      compile_attempt_0         0.00%     138.219us        13.27%        2.040s     339.931ms             6                                                                     []  
+                       compile_attempt_0 (dynamo_timed)         0.08%      12.987ms        13.27%        2.039s     339.898ms             6                                                                     []  
+                                        backend_compile         0.00%     105.479us        12.51%        1.924s     641.201ms             3                                                                     []  
+          OutputGraph.call_user_compiler (dynamo_timed)         1.69%     260.539ms        12.51%        1.923s     641.154ms             3                                                                     []  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.43%        1.603s        10.43%        1.603s       8.349ms           192          [[256, 1024], [256, 2], [8192, 1024], [8192, 2], [256, 8192]]  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.33%        1.589s        10.33%        1.589s      12.314ms           129          [[256, 4096], [256, 8], [1536, 4096], [1536, 8], [256, 1536]]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.372s
+
+
+Memory Usage is saved to cuda_graph_runner_memory_usage.pickle
+
+[2026-05-19 22:57:39 TP1] Capture cuda graph end. Time elapsed: 264.10 s. mem usage=1.44 GB. avail mem=15.21 GB.
+[2026-05-19 22:57:39 TP1] Disable piecewise CUDA graph because --disable-piecewise-cuda-graph is set
+[2026-05-19 22:57:40 TP3] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:57:40 TP1] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:57:41 TP3] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:57:41 TP1] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:57:42 TP2] Sorted by CUDA Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                            aten::slice         0.01%       1.035ms         0.01%       1.259ms       4.995us           252                                                [[256], [], [], [], []]  
+                                       aten::as_strided         0.00%     244.078us         0.00%     244.078us       0.746us           327                                                    [[256], [], [], []]  
+                                            aten::alias         0.00%       5.750us         0.00%       5.750us       5.750us             1                                                             [[3, 256]]  
+                                            aten::slice         0.00%      49.750us         0.00%      64.950us       1.804us            36                                        [[256, 129280], [], [], [], []]  
+                                       aten::as_strided         0.00%      15.200us         0.00%      15.200us       0.422us            36                                            [[256, 129280], [], [], []]  
+                                       aten::lift_fresh         0.00%     155.496us         0.02%       3.628ms      43.189us            84                                                                   [[]]  
+                                            aten::fill_         0.01%       2.051ms         0.01%       2.216ms      20.326us           109                                                              [[1], []]  
+                                             aten::item         0.00%     132.598us         0.04%       5.541ms      76.960us            72                                                                   [[]]  
+                              aten::_local_scalar_dense         0.04%       5.409ms         0.04%       5.409ms      75.118us            72                                                                   [[]]  
+                                              aten::sum         0.00%     525.233us         0.00%     624.871us     624.871us             1                                                            [[256], []]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.148s
+
+
+Sorted by CPU Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                            sglang::outplace_all_reduce        27.47%        4.161s        27.47%        4.161s      15.941ms           261                                                  [[256, 4096], [], []]  
+                                                 dynamo         0.06%       8.993ms        13.84%        2.097s     349.532ms             6                                                                     []  
+                                   entire_frame_compile         0.00%     189.806us        13.78%        2.088s     347.994ms             6                                                                     []  
+                  _compile.compile_inner (dynamo_timed)         0.10%      15.183ms        13.78%        2.088s     347.956ms             6                                                                     []  
+                                      compile_attempt_0         0.00%     124.836us        13.53%        2.050s     341.596ms             6                                                                     []  
+                       compile_attempt_0 (dynamo_timed)         0.08%      12.571ms        13.53%        2.049s     341.567ms             6                                                                     []  
+                                        backend_compile         0.00%     100.988us        12.76%        1.934s     644.540ms             3                                                                     []  
+          OutputGraph.call_user_compiler (dynamo_timed)         1.72%     260.500ms        12.76%        1.933s     644.496ms             3                                                                     []  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.57%        1.601s        10.57%        1.601s      12.413ms           129          [[256, 4096], [256, 8], [1024, 4096], [1024, 8], [256, 1024]]  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        10.51%        1.593s        10.51%        1.593s       8.295ms           192          [[256, 1024], [256, 2], [8192, 1024], [8192, 2], [256, 8192]]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 15.148s
+
+
+Memory Usage is saved to cuda_graph_runner_memory_usage.pickle
+
+[2026-05-19 22:57:42 TP2] Capture cuda graph end. Time elapsed: 267.29 s. mem usage=1.44 GB. avail mem=15.21 GB.
+[2026-05-19 22:57:42 TP2] Disable piecewise CUDA graph because --disable-piecewise-cuda-graph is set
+[2026-05-19 22:57:42 TP1] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 22:57:43 TP2] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 22:57:45 TP2] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 22:57:46 TP2] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 23:01:01 TP0] Sorted by CUDA Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                            aten::slice         0.00%       1.001ms         0.00%       1.198ms       4.756us           252                                                [[256], [], [], [], []]  
+                                       aten::as_strided         0.00%     223.697us         0.00%     223.697us       0.684us           327                                                    [[256], [], [], []]  
+                                            aten::alias         0.00%       5.690us         0.00%       5.690us       5.690us             1                                                             [[3, 256]]  
+                                            aten::slice         0.00%      52.030us         0.00%      68.450us       1.901us            36                                        [[256, 129280], [], [], [], []]  
+                                       aten::as_strided         0.00%      16.420us         0.00%      16.420us       0.456us            36                                            [[256, 129280], [], [], []]  
+                                       aten::lift_fresh         0.00%     186.848us         0.01%       4.334ms      51.599us            84                                                                   [[]]  
+                                            aten::fill_         0.00%       1.972ms         0.00%       2.145ms      19.675us           109                                                              [[1], []]  
+                                             aten::item         0.00%     134.488us         0.00%       2.329ms      32.345us            72                                                                   [[]]  
+                              aten::_local_scalar_dense         0.00%       2.194ms         0.00%       2.194ms      30.477us            72                                                                   [[]]  
+                                              aten::sum         0.00%     521.492us         0.00%     622.951us     622.951us             1                                                            [[256], []]  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 50.487s
+
+
+Sorted by CPU Time:
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg    # of Calls                                                           Input Shapes  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt        61.42%       31.007s        62.47%       31.540s     244.494ms           129          [[256, 4096], [256, 8], [1536, 4096], [1536, 8], [256, 1536]]  
+                            sglang::outplace_all_reduce         8.44%        4.260s         8.44%        4.260s      16.321ms           261                                                  [[256, 4096], [], []]  
+                      sglang::deep_gemm_fp8_fp8_bf16_nt         7.36%        3.715s         8.37%        4.224s      32.743ms           129          [[256, 4096], [256, 8], [1024, 4096], [1024, 8], [256, 1024]]  
+                                                 dynamo         0.02%       8.723ms         4.26%        2.151s     358.439ms             6                                                                     []  
+                                   entire_frame_compile         0.00%     168.407us         4.24%        2.142s     356.946ms             6                                                                     []  
+                  _compile.compile_inner (dynamo_timed)         0.03%      14.956ms         4.24%        2.141s     356.911ms             6                                                                     []  
+                                      compile_attempt_0         0.00%     135.700us         4.17%        2.103s     350.547ms             6                                                                     []  
+                       compile_attempt_0 (dynamo_timed)         0.03%      12.905ms         4.17%        2.103s     350.513ms             6                                                                     []  
+                                        backend_compile         0.00%     113.668us         3.93%        1.986s     662.036ms             3                                                                     []  
+          OutputGraph.call_user_compiler (dynamo_timed)         0.50%     251.183ms         3.93%        1.986s     661.985ms             3                                                                     []  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ---------------------------------------------------------------------  
+Self CPU time total: 50.487s
+
+
+Memory Usage is saved to cuda_graph_runner_memory_usage.pickle
+
+[2026-05-19 23:01:01 TP0] Capture cuda graph end. Time elapsed: 465.52 s. mem usage=1.44 GB. avail mem=15.20 GB.
+[2026-05-19 23:01:01 TP0] Disable piecewise CUDA graph because --disable-piecewise-cuda-graph is set
+[2026-05-19 23:01:02 TP0] Tokenizer loaded as generic TokenizersBackend for deepseek-ai/DeepSeek-V4-Flash, retrying with use_fast=False
+[2026-05-19 23:01:03 TP0] Loading tokenizer for deepseek-ai/DeepSeek-V4-Flash directly as PreTrainedTokenizerFast (bypassing AutoTokenizer)
+[2026-05-19 23:01:04 TP0] Tokenizer for deepseek-ai/DeepSeek-V4-Flash is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-05-19 23:01:04 TP0] max_total_num_tokens=8071936, chunked_prefill_size=4096, max_prefill_tokens=16384, max_running_requests=256, context_len=1048576, available_gpu_mem=15.20 GB
+[2026-05-19 23:01:05] INFO:     Started server process [31]
+[2026-05-19 23:01:05] INFO:     Waiting for application startup.
+[2026-05-19 23:01:05] Using default chat sampling params from model generation config: {'temperature': 1.0, 'top_p': 1.0}
+[2026-05-19 23:01:05] INFO:     Application startup complete.
+[2026-05-19 23:01:05] INFO:     Uvicorn running on http://127.0.0.1:30000 (Press CTRL+C to quit)
+[2026-05-19 23:01:06] INFO:     127.0.0.1:40322 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:06] INFO:     127.0.0.1:40328 - "GET /model_info HTTP/1.1" 200 OK
+[2026-05-19 23:01:08] INFO:     127.0.0.1:40346 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:10] INFO:     127.0.0.1:40362 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:12] INFO:     127.0.0.1:55188 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:14] INFO:     127.0.0.1:55192 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:16] INFO:     127.0.0.1:55206 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:18] INFO:     127.0.0.1:55222 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-05-19 23:01:19 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 0.48
+[2026-05-19 23:01:19] INFO:     127.0.0.1:40338 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:19] The server is fired up and ready to roll!
+[2026-05-19 23:01:21 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 203.22
+[2026-05-19 23:01:21] INFO:     127.0.0.1:55236 - "GET /health HTTP/1.1" 200 OK
+[2026-05-19 23:01:21 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 2297.01
+[2026-05-19 23:01:21 TP0] Decode batch, #running-req: 1, #full token: 256, full token usage: 0.00, #swa token: 256, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 0.08, #queue-req: 0
+[2026-05-19 23:01:21] INFO:     127.0.0.1:54722 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-05-19 23:01:21 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 659.97
+[2026-05-19 23:01:21 TP0] Decode batch, #running-req: 1, #full token: 256, full token usage: 0.00, #swa token: 256, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 118.45, #queue-req: 0
+[2026-05-19 23:01:21] INFO:     127.0.0.1:54726 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-05-19 23:01:21 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 677.17
+[2026-05-19 23:01:22 TP0] Decode batch, #running-req: 1, #full token: 256, full token usage: 0.00, #swa token: 256, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 121.30, #queue-req: 0
+[2026-05-19 23:01:22] INFO:     127.0.0.1:54740 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-05-19 23:01:22 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 550.16
+[2026-05-19 23:01:22] INFO:     127.0.0.1:54756 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-05-19 23:01:22 TP0] Decode batch, #running-req: 1, #full token: 0, full token usage: 0.00, #swa token: 0, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 95.84, #queue-req: 0
+[2026-05-19 23:01:35 TP0] Prefill batch, #new-seq: 4, #new-token: 3072, #cached-token: 0, full token usage: 0.00, swa token usage: 0.01, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 238.27
+[2026-05-19 23:01:35 TP0] Prefill batch, #new-seq: 4, #new-token: 3072, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 4, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 39314.79
+[2026-05-19 23:01:35 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 23.66, #queue-req: 0
+[2026-05-19 23:01:35 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1031.69, #queue-req: 0
+[2026-05-19 23:01:36 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1031.28, #queue-req: 0
+[2026-05-19 23:01:36 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1034.84, #queue-req: 0
+[2026-05-19 23:01:36 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1030.75, #queue-req: 0
+[2026-05-19 23:01:37 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1032.45, #queue-req: 0
+[2026-05-19 23:01:37] INFO:     127.0.0.1:54764 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:39 TP0] Prefill batch, #new-seq: 6, #new-token: 1536, #cached-token: 3072, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 361.25
+[2026-05-19 23:01:39 TP0] Prefill batch, #new-seq: 2, #new-token: 512, #cached-token: 1024, full token usage: 0.00, swa token usage: 0.00, #running-req: 6, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 229484.59
+[2026-05-19 23:01:39 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 123.95, #queue-req: 0
+[2026-05-19 23:01:40 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1016.38, #queue-req: 0
+[2026-05-19 23:01:40 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1013.16, #queue-req: 0
+[2026-05-19 23:01:40 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1009.22, #queue-req: 0
+[2026-05-19 23:01:41 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1010.87, #queue-req: 0
+[2026-05-19 23:01:41 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1012.47, #queue-req: 0
+[2026-05-19 23:01:41] INFO:     127.0.0.1:52768 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:41 TP0] Prefill batch, #new-seq: 6, #new-token: 1536, #cached-token: 3072, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 705.57
+[2026-05-19 23:01:41 TP0] Prefill batch, #new-seq: 2, #new-token: 512, #cached-token: 1024, full token usage: 0.00, swa token usage: 0.00, #running-req: 6, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 289713.25
+[2026-05-19 23:01:41 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 676.38, #queue-req: 0
+[2026-05-19 23:01:42 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1025.32, #queue-req: 0
+[2026-05-19 23:01:42 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1021.89, #queue-req: 0
+[2026-05-19 23:01:42 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1018.64, #queue-req: 0
+[2026-05-19 23:01:43 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1013.24, #queue-req: 0
+[2026-05-19 23:01:43 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 887.64, #queue-req: 0
+[2026-05-19 23:01:43 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 877.64, #queue-req: 0
+[2026-05-19 23:01:43] INFO:     127.0.0.1:57724 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:44 TP0] Prefill batch, #new-seq: 7, #new-token: 1792, #cached-token: 3584, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 721.10
+[2026-05-19 23:01:44 TP0] Prefill batch, #new-seq: 1, #new-token: 256, #cached-token: 512, full token usage: 0.00, swa token usage: 0.00, #running-req: 7, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 10851.70
+[2026-05-19 23:01:44 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 386.16, #queue-req: 0
+[2026-05-19 23:01:44 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1010.91, #queue-req: 0
+[2026-05-19 23:01:45 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1007.75, #queue-req: 0
+[2026-05-19 23:01:45 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1004.79, #queue-req: 0
+[2026-05-19 23:01:45 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1004.09, #queue-req: 0
+[2026-05-19 23:01:46 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1007.90, #queue-req: 0
+[2026-05-19 23:01:46] INFO:     127.0.0.1:57740 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:46 TP0] Prefill batch, #new-seq: 6, #new-token: 1536, #cached-token: 3072, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 701.63
+[2026-05-19 23:01:46 TP0] Prefill batch, #new-seq: 2, #new-token: 512, #cached-token: 1024, full token usage: 0.00, swa token usage: 0.00, #running-req: 6, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 123908.84
+[2026-05-19 23:01:46 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 638.16, #queue-req: 0
+[2026-05-19 23:01:46 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 887.88, #queue-req: 0
+[2026-05-19 23:01:47 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 881.13, #queue-req: 0
+[2026-05-19 23:01:47 TP0] Decode batch, #running-req: 6, #full token: 2048, full token usage: 0.00, #swa token: 2048, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 847.94, #queue-req: 0
+[2026-05-19 23:01:47 TP0] Decode batch, #running-req: 6, #full token: 2048, full token usage: 0.00, #swa token: 2048, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 747.72, #queue-req: 0
+[2026-05-19 23:01:48 TP0] Decode batch, #running-req: 6, #full token: 2048, full token usage: 0.00, #swa token: 2048, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 747.31, #queue-req: 0
+[2026-05-19 23:01:48 TP0] Decode batch, #running-req: 6, #full token: 0, full token usage: 0.00, #swa token: 0, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 743.45, #queue-req: 0
+[2026-05-19 23:01:48] INFO:     127.0.0.1:57752 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:48 TP0] Prefill batch, #new-seq: 8, #new-token: 2048, #cached-token: 4096, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 962.94
+[2026-05-19 23:01:48 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 801.01, #queue-req: 0
+[2026-05-19 23:01:49 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1010.77, #queue-req: 0
+[2026-05-19 23:01:49 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 897.63, #queue-req: 0
+[2026-05-19 23:01:49 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 878.30, #queue-req: 0
+[2026-05-19 23:01:50 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 875.23, #queue-req: 0
+[2026-05-19 23:01:50 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 877.31, #queue-req: 0
+[2026-05-19 23:01:50] INFO:     127.0.0.1:57764 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:50 TP0] Prefill batch, #new-seq: 8, #new-token: 2048, #cached-token: 4096, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 965.91
+[2026-05-19 23:01:50 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 757.39, #queue-req: 0
+[2026-05-19 23:01:51 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1016.47, #queue-req: 0
+[2026-05-19 23:01:51 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1014.44, #queue-req: 0
+[2026-05-19 23:01:51 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1013.06, #queue-req: 0
+[2026-05-19 23:01:52 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 923.63, #queue-req: 0
+[2026-05-19 23:01:52 TP0] Decode batch, #running-req: 7, #full token: 2304, full token usage: 0.00, #swa token: 2304, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 881.27, #queue-req: 0
+[2026-05-19 23:01:52] INFO:     127.0.0.1:58954 - "POST /generate HTTP/1.1" 200 OK
+[2026-05-19 23:01:52 TP0] Prefill batch, #new-seq: 8, #new-token: 2048, #cached-token: 4096, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 972.21
+[2026-05-19 23:01:52 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 717.34, #queue-req: 0
+[2026-05-19 23:01:53 TP0] Decode batch, #running-req: 8, #full token: 2560, full token usage: 0.00, #swa token: 2560, swa token usage: 0.00, cuda graph: True, gen throughput (token/s): 1024.57, #queue-req: 0
+[2026-05-19 23:01:53] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+[2026-05-19 23:01:54] Subprocess detokenizer (pid=90) crashed with exit code -15. Triggering SIGQUIT for cleanup...
+[2026-05-19 23:01:54] SIGQUIT received. signum=None, frame=None. It usually means one child failed.
+The target application terminated. One or more process it created re-parented.
+Waiting for termination of re-parented processes.
+Use the `--wait` option to modify this behavior.
+Collecting data...
+Generating '/tmp/nsys-root/nsys-report-1966.qdstrm'
+[1/1] [0%                          ] dsv4_decode.nsys-rep[1/1] [0%                          ] dsv4_decode.nsys-rep[1/1] [0%                          ] dsv4_decode.nsys-rep[1/1] [0%                          ] dsv4_decode.nsys-rep[1/1] [0%                          ] dsv4_decode.nsys-rep[1/1] [5%                          ] dsv4_decode.nsys-rep[1/1] [6%                          ] dsv4_decode.nsys-rep[1/1] [7%                          ] dsv4_decode.nsys-rep[1/1] [8%                          ] dsv4_decode.nsys-rep[1/1] [9%                          ] dsv4_decode.nsys-rep[1/1] [10%                         ] dsv4_decode.nsys-rep[1/1] [11%                         ] dsv4_decode.nsys-rep[1/1] [12%                         ] dsv4_decode.nsys-rep[1/1] [13%                         ] dsv4_decode.nsys-rep[1/1] [14%                         ] dsv4_decode.nsys-rep[1/1] [=15%                        ] dsv4_decode.nsys-rep[1/1] [=16%                        ] dsv4_decode.nsys-rep[1/1] [=17%                        ] dsv4_decode.nsys-rep[1/1] [==18%                       ] dsv4_decode.nsys-rep[1/1] [==19%                       ] dsv4_decode.nsys-rep[1/1] [==20%                       ] dsv4_decode.nsys-rep[1/1] [==21%                       ] dsv4_decode.nsys-rep[1/1] [===22%                      ] dsv4_decode.nsys-rep[1/1] [===23%                      ] dsv4_decode.nsys-rep[1/1] [===24%                      ] dsv4_decode.nsys-rep[1/1] [====25%                     ] dsv4_decode.nsys-rep[1/1] [====26%                     ] dsv4_decode.nsys-rep[1/1] [====27%                     ] dsv4_decode.nsys-rep[1/1] [====28%                     ] dsv4_decode.nsys-rep[1/1] [=====29%                    ] dsv4_decode.nsys-rep[1/1] [=====30%                    ] dsv4_decode.nsys-rep[1/1] [=====31%                    ] dsv4_decode.nsys-rep[1/1] [=====32%                    ] dsv4_decode.nsys-rep[1/1] [======33%                   ] dsv4_decode.nsys-rep[1/1] [======34%                   ] dsv4_decode.nsys-rep[1/1] [======35%                   ] dsv4_decode.nsys-rep[1/1] [=======36%                  ] dsv4_decode.nsys-rep[1/1] [=======37%                  ] dsv4_decode.nsys-rep[1/1] [=======38%                  ] dsv4_decode.nsys-rep[1/1] [=======39%                  ] dsv4_decode.nsys-rep[1/1] [========40%                 ] dsv4_decode.nsys-rep[1/1] [========41%                 ] dsv4_decode.nsys-rep[1/1] [========42%                 ] dsv4_decode.nsys-rep[1/1] [=========43%                ] dsv4_decode.nsys-rep[1/1] [=========44%                ] dsv4_decode.nsys-rep[1/1] [=========45%                ] dsv4_decode.nsys-rep[1/1] [=========46%                ] dsv4_decode.nsys-rep[1/1] [==========47%               ] dsv4_decode.nsys-rep[1/1] [==========48%               ] dsv4_decode.nsys-rep[1/1] [========================100%] dsv4_decode.nsys-rep[1/1] [========================100%] dsv4_decode.nsys-rep
+Generated:
+	/traces/dsv4_decode.nsys-rep

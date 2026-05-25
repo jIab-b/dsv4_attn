@@ -1,0 +1,39 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-DSOsPvcIndgKUFKi9M45MF
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+└── 🔨 Created function serve_and_trace.
+wrapped cmd: nsys profile -t cuda,nvtx,cudnn,cublas,osrt --cuda-graph-trace=node --force-overwrite=true --delay=540 --duration=25 --sample=none --cpuctxsw=none --output /traces/dsv4_decode -- python -m sglang.launch_server --trust-remote-code --model-path deepseek-ai/DeepSeek-V4-Flash --tp 4 --moe-runner-backend flashinfer_mxfp4 --chunked-prefill-size 4096 --disable-flashinfer-autotune --swa-full-tokens-ratio 0.1 --mem-fraction-static 0.90 --enable-profile-cuda-graph --enable-layerwise-nvtx-marker --host 127.0.0.1 --port 30000
+nsys+server pid: 9
+waiting up to 625s for nsys to finalize …
+loader: server ready
+loader: warmup chat 0 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 1 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 2 -> 'Therows8tabelaA:u (                                      '
+loader: sanity chat -> 'Paris’sCMIY9D'
+nsys exited rc=137
+=== bench timing ===
+{
+  "ready_at": 1779231681.0693953,
+  "warmup_done_at": 1779231682.4439209,
+  "first_bench_at": 1779231682.4439232
+}
+rep size: 120.7 MB at /traces/dsv4_decode.nsys-rep
+stats cmd: nsys stats --report cuda_gpu_kern_sum,cuda_api_sum,nvtx_sum --format csv --output /traces/dsv4_decode_stats /traces/dsv4_decode.nsys-rep
+--- stats stdout (tail) ---
+
+--- stats stderr (tail) ---
+
+WARNING: Existing SQLite export found: /traces/dsv4_decode.sqlite
+         File is older than input file: /traces/dsv4_decode.nsys-rep
+         Use --force-export=true to update export file.
+
+usage: nsys stats [<args>] <input-file>
+Try 'nsys stats --help' for more information.
+
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-DSOsPvcIndgKUFKi9M45MF

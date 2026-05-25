@@ -6,3 +6,6 @@ __pycache__/
 *.o
 *.so
 *.venv/
+*.csv
+*.sqlite
+*.nsys-rep

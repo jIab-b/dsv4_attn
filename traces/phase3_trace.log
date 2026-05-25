@@ -1,0 +1,39 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-moYj25JQo7ZLCxeoArmhRi
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+└── 🔨 Created function serve_and_trace.
+wrapped cmd: nsys profile -t cuda,nvtx,cudnn,cublas,osrt --cuda-graph-trace=node --force-overwrite=true --delay=540 --duration=25 --sample=none --cpuctxsw=none --output /traces/dsv4_decode -- python -m sglang.launch_server --trust-remote-code --model-path deepseek-ai/DeepSeek-V4-Flash --tp 4 --moe-runner-backend flashinfer_mxfp4 --chunked-prefill-size 4096 --disable-flashinfer-autotune --swa-full-tokens-ratio 0.1 --mem-fraction-static 0.90 --host 127.0.0.1 --port 30000
+nsys+server pid: 9
+waiting up to 625s for nsys to finalize …
+loader: server ready
+loader: warmup chat 0 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 1 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 2 -> 'Therows8tabelaA:u (                                      '
+loader: sanity chat -> 'Paris’sCMIY9D'
+nsys exited rc=137
+=== bench timing ===
+{
+  "ready_at": 1779230294.4208598,
+  "warmup_done_at": 1779230296.0484116,
+  "first_bench_at": 1779230296.0484147
+}
+rep size: 10.8 MB at /traces/dsv4_decode.nsys-rep
+stats cmd: nsys stats --report cuda_gpu_kern_sum,cuda_api_sum,nvtx_sum --format csv --output /traces/dsv4_decode_stats /traces/dsv4_decode.nsys-rep
+--- stats stdout (tail) ---
+Generating SQLite file /traces/dsv4_decode.sqlite from /traces/dsv4_decode.nsys-rep
+Processing [/traces/dsv4_decode.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_kern_sum.py] to [/traces/dsv4_decode_stats_cuda_gpu_kern_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_api_sum.py] to [/traces/dsv4_decode_stats_cuda_api_sum.csv]... PROCESSED
+
+Processing [/traces/dsv4_decode.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/nvtx_sum.py] to [/traces/dsv4_decode_stats_nvtx_sum.csv]... PROCESSED (EMPTY RESULTS)
+
+
+--- stats stderr (tail) ---
+
+Stopping app - local entrypoint completed.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-moYj25JQo7ZLCxeoArmhRi

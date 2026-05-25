@@ -1,0 +1,222 @@
+====================================================================================================
+HCA func-sig validation — your hca/params.h vs sglang's DSv4 decode kernels
+====================================================================================================
+
+Your `HcaParams` (in hca/params.h) is currently one big struct that fuses what sglang factors
+across SIX distinct kernel-param structs at decode time. Below is the kernel-by-kernel mapping.
+For each sglang kernel I quote the exact mangled sig as captured by nsys, then map every field
+of `HcaParams` to where it lives in sglang. At the end: 3 concrete sig-level recommendations.
+
+====================================================================================================
+SGLANG'S 6 DECODE-TIME ATTENTION KERNELS (sigs from the 3k nsys trace)
+====================================================================================================
+
+[A] PER-STEP COMPRESSOR (HCA, m'=128):
+    void <unnamed>::flash_c128_decode<(long)512, float, float, (bool)1>(
+        <unnamed>::Compress128DecodeParams
+    )
+    Template: <latent_dim=512, scale_t=float, accum_t=float, has_bias=true>
+
+[B] MAIN ATTENTION READ (CSA top-k + HCA dense + SWA all route here):
+    void sm100::decode::head64::flash_fwd_splitkv_mla_fp8_sparse_kernel<
+        sm100::decode::head64::KernelTemplate<(ModelType)1>,
+        KernelTemplate<(ModelType)1>::TmaParams<
+            cute::tuple<int,int,int,int>,                              ← runtime shape (B, M_cur, …)
+            cute::TiledCopy<Copy_Atom<Copy_Traits<SM90_TMA_LOAD, …>>>,  ← TMA descriptor for K
+            cute::Layout<…, tuple<C<64>, C<512>>>,                      ← head_dim=64, latent=512
+            cute::tuple<int,int,int,int>,                              ← runtime out shape
+            cute::TiledCopy<Copy_Atom<Copy_Traits<SM90_TMA_STORE, …>>>, ← TMA descriptor for O
+            cute::Layout<…, tuple<C<64>, C<64>>>                        ← head_dim=64, dh_split=64
+        >
+    >(SparseAttnDecodeParams, T2)
+
+[C] SPLIT-K COMBINE (your launch_hca_combine analog):
+    void smxx::decode::flash_fwd_mla_combine_kernel<
+        cutlass::bfloat16_t, (int)512, (int)8, (int)160, (int)256
+    >(CombineParams)
+    Template: <out_dtype=bf16, D=512, num_splits=8, head_block=160, tile=256>
+
+[D] FUSED K-NORM + RoPE (pre-attention, K-side):
+    void <unnamed>::fused_k_norm_rope_flashmla<
+        __nv_bfloat16, (long)512, (long)64, long, (int)8, (bool)1
+    >(<unnamed>::FusedKNormRopeFlashMLAParams)
+    Template: <act_dtype=bf16, D=512, D_rope=64, idx_t=long, num_splits=8, do_rmsnorm=true>
+
+[E] FUSED Q-NORM + RoPE (pre-attention, Q-side):
+    void <unnamed>::fused_q_norm_rope<
+        __nv_bfloat16, (long)512, (long)64, long, (bool)1
+    >(<unnamed>::FusedQNormRopeParams)
+    Template: <act_dtype=bf16, D=512, D_rope=64, idx_t=long, do_rmsnorm=true>
+
+[F] METADATA PLANNER (split-K scheduling, per-batch):
+    smxx::decode::get_mla_metadata_kernel(GetDecodeSchedMetaParams)
+    + smxx_paged_mqa_logits_metadata(MetadataParams)
+    + _init_compressed_attn_metadata_kernel
+
+These three kernels run ONCE per batch (not per layer) and produce the per-request stride
+tables / split plans that the per-layer kernels consume.
+
+====================================================================================================
+FIELD-BY-FIELD MAP — HcaParams → sglang
+====================================================================================================
+
+HcaParams field                          maps to                                         status
+─────────────────────────────────────    ─────────────────────────────────────────────   ──────
+SHAPES / COUNTERS
+  int B                                  SparseAttnDecodeParams.batch_size               ✅
+  int n                                  (only used for prefill / standalone reduce)     drop or move
+  int n_blocks  (= n / m')                ↑ same                                          drop or move
+  int c_out = 512                        kernel TEMPLATE constant cute::C<512>           ⚠ make compile-time
+  int m_prime = 128                      kernel TEMPLATE constant cute::C<128>           ⚠ make compile-time
+  int M_cur                              SparseAttnDecodeParams.kv_indices (paged)       ⚠ sglang uses per-req
+  int swa_len                            SparseAttnDecodeParams.swa_kv_indices           ⚠ sglang uses per-req
+  int partial_count                      Compress128DecodeParams.partial_count           wrong struct (move)
+
+COMPRESSOR INPUTS (these belong to [A], not [B])
+  bf16* C    [B, m', c_out]              Compress128DecodeParams.input_latent            wrong struct (move)
+  bf16* Z    [B, m', c_out]              Compress128DecodeParams.input_gate              wrong struct (move)
+  bf16* bias [m', c_out]                 Compress128DecodeParams.pos_bias  (your "ape")  wrong struct (move)
+
+COMPRESSED CACHE
+  fp8_e4m3*    Kc          [B, M_max, 512]    TMA-loaded via TmaParams (no explicit ptr) ✅ layout matches
+  fp8_e8m0*    Kc_scales   [B, M_max, 4]      same TMA path; scales are e8m0 microscale  ✅
+  bf16*        Kc_rope     [B, M_max, 64]     separate TMA descriptor                    ✅
+
+SWA CACHE (W=128)
+  fp8_e4m3*    Kswa        [B, 128, 512]      same layout, separate TMA descriptor       ✅
+  fp8_e8m0*    Kswa_scales [B, 128, 4]                                                   ✅
+  bf16*        Kswa_rope   [B, 128, 64]                                                  ✅
+
+Q / O / SPLIT-K
+  bf16*  Q          [B, 1, H=128, 512]   SparseAttnDecodeParams.q   (TMA-loaded)         ⚠ H wrong, see note
+  bf16*  O          [B, 1, H=128, 512]   SparseAttnDecodeParams.out (TMA-stored)         ⚠ H wrong
+  float* partial_O  [split, B, H, 512]   SparseAttnDecodeParams.partial_o                ✅
+  float* partial_lse[split, B, H]        SparseAttnDecodeParams.partial_lse  (log2)      ✅
+
+STRIDES
+  stride_C_*, stride_Kc_*, stride_Kc_scales_*, stride_Kc_rope_*,
+  stride_Kswa_*, stride_Q_b, stride_O_b, stride_partial_*_*
+                                         sglang bakes most strides into TMA descriptors  ⚠ redundant w/ TMA
+
+LEGACY REDUCE
+  bf16* out, stride_out_b, stride_out_blk
+                                         not in any sglang struct                        drop
+
+SOFTMAX / ROPE
+  float  sm_scale_log2                   SparseAttnDecodeParams.sm_scale_log2            ✅
+  float* attn_sink   [H]                 SparseAttnDecodeParams.attn_sink                ✅ (but H=64 not 128)
+  float  rope_theta_compressed = 160000  FusedKNormRopeFlashMLAParams.rope_theta_full    ✅
+  float  rope_theta_swa        = 10000   FusedKNormRopeFlashMLAParams.rope_theta_swa     ✅
+
+TMA DESCRIPTORS  (these belong to TmaParams — sglang stores them in the kernel template)
+  CUtensorMap tma_Q_sw128                Q load, 128-byte swizzle                        ✅
+  CUtensorMap tma_Q_sw64                 Q load, 64-byte swizzle (rope dim)              ✅
+  CUtensorMap tma_O                      O store                                         ✅
+  CUtensorMap tma_Kc                     K compressed cache load                         ✅
+  CUtensorMap tma_Kc_scales              K e8m0 scales load                              ✅
+  CUtensorMap tma_Kc_rope                K rope load                                     ✅
+  CUtensorMap tma_Kswa                   K SWA cache load                                ✅
+  CUtensorMap tma_Kswa_scales            K SWA scales load                               ✅
+  CUtensorMap tma_Kswa_rope              K SWA rope load                                 ✅
+
+  → 9 TMA descriptors; sglang has these as TmaParams template args (TiledCopy of
+    Copy_Atom<Copy_Traits<SM90_TMA_LOAD|STORE, …>>). Matches.
+
+====================================================================================================
+HcaCombineParams vs sglang's CombineParams
+====================================================================================================
+
+HcaCombineParams field                                  sglang's `CombineParams`         status
+──────────────────────────────────────────────────────  ──────────────────────────────   ──────
+  int B                                                 batch                            ✅
+  int H                                                 num_heads                        ⚠ H=64 not 128
+  int D = 512                                           kernel TEMPLATE (int)512         ✅
+  int num_splits                                        kernel TEMPLATE (int)8           ⚠ compile-time
+  const float* partial_O   [split, B, H, D]             partial_o                        ✅
+  const float* partial_lse [split, B, H]  (log2)        partial_lse                      ✅
+  bf16*  O                 [B, H, D]                    out                              ✅
+  float* lse               [B, H]  (natural log)        lse_out                          ✅
+  const float* attn_sink   [H]                          sink                             ✅
+  strides…                                              all baked in to template / TMA   ⚠ partial overlap
+
+====================================================================================================
+THE 3 CONCRETE SIG-LEVEL ISSUES TO FIX
+====================================================================================================
+
+1.  SPLIT HcaParams INTO TWO STRUCTS.
+    Your single struct collapses two distinct kernels. Match sglang's factoring:
+      struct HcaAttnDecodeParams {     // for kernel [B] — the attention reader
+          // shapes:   B, M_cur[B], swa_len[B] (per-request, not int)
+          // tensors:  Q, O, partial_O, partial_lse, attn_sink
+          // cache descriptors: 9 TMA descriptors covering Kc / Kc_scales / Kc_rope /
+          //                    Kswa / Kswa_scales / Kswa_rope / Q sw128 / Q sw64 / O
+          // softmax:  sm_scale_log2
+          // rope:     rope_theta_compressed, rope_theta_swa
+      };
+      struct HcaCompress128DecodeParams { // for kernel [A] — the per-step compressor
+          // shapes:   B, m_prime=128, c_out=512 (both as compile-time template params)
+          // inputs:   C, Z, bias / "ape"
+          // state:    partial_count[B], M_cur[B] (per-request)
+      };
+    Your current HcaCombineParams is already the right shape for kernel [C], keep it.
+
+2.  H IS WRONG (H=64 for V4-Flash, NOT 128).
+    Your sketch and params.h both say H=128. The NVTX-captured `attn_sink: [64]` from
+    the live model confirms H=64 for DSv4-Flash. Either:
+      - keep H as a runtime int and accept a 2x increase in cycles for nothing
+      - OR template the kernel on H (matches sglang: kernel template carries head config)
+    V4-Pro uses H=128 → if you want one binary for both, H must be templated, not const.
+
+3.  M_cur / swa_len / partial_count NEED TO BE PER-REQUEST.
+    Your params.h has them as `int M_cur; int swa_len; int partial_count;` — that
+    assumes every batch member has the same context length. sglang's
+    SparseAttnDecodeParams takes `kv_indices : int*[B+1]` (CSR-style ragged) so requests
+    in the same batch can be at different lengths. For real serving you need:
+      int* M_cur;          // [B]
+      int* swa_len;        // [B]
+      int* partial_count;  // [B]
+    or equivalent CSR-style page tables.
+
+====================================================================================================
+WHAT'S DIFFERENT AT THE KERNEL-FACTORING LEVEL (not sig issues, just info)
+====================================================================================================
+
+• sglang has NO separate "HCA dense" attention kernel.
+  Both CSA-top-k attention and HCA-dense-over-compressed attention route through the
+  same [B] flash_fwd_splitkv_mla_fp8_sparse_kernel. "sparse" = indexed-paged access,
+  not selective compute. You CAN write a true-dense HCA kernel (no index list, contiguous
+  access) — it'll be simpler and slightly faster per call, but you lose paging flexibility.
+
+• sglang fuses K-norm+RoPE into one pre-pass [D] (fused_k_norm_rope_flashmla).
+  Your sketch's Weights struct has normKc + per-step rope as separate ops. Fusing them
+  matches sglang's perf — kernel-launch and bf16 read/write reduction are nontrivial.
+
+• sglang's split-K is `num_splits=8` baked compile-time (the (int)8 in [C]).
+  Your `num_splits` is runtime. If you template it you get a tighter register schedule.
+
+• sglang's TMA descriptors live INSIDE the kernel template (TmaParams<...>), not in the
+  param struct. This means the kernel is monomorphized per descriptor at JIT-compile
+  time. Your params.h carries CUtensorMap by value — that works at runtime but the
+  compiler can't optimize tile layouts as aggressively. Worth knowing.
+
+====================================================================================================
+WHAT THIS RUN GOT YOU (FOR YOUR PURPOSES, SHORT VERSION)
+====================================================================================================
+
+Useful  ✅  Full kernel signatures (155 distinct kernels) + per-event timing for two
+            context lengths, mapping every HcaParams field to a sglang counterpart.
+Useful  ✅  Confirmation that DSv4-Flash uses FP8 e4m3 + e8m0 microscale on KV cache,
+            FP4 routed experts, bf16 activations, fp32 accumulators — matches your sketch.
+Useful  ✅  Empirical fingerprint that DSv4-Flash has ~16 CSA + ~16 HCA layers (from
+            instance-count ratios of flash_c4_decode vs flash_c128_decode).
+Useful  ✅  Confirmed attention is ~9% of decode time; mHC is ~18%; MoE is ~24%; TP
+            allreduce is ~23%. If your HCA kernel is slow it won't bottleneck the model.
+
+Less   ⚠   Could not push beyond ~50k context to see HCA's long-context scaling cliff;
+useful     the GPU MMU-faults reliably on this sglang+B200 build.
+
+Not    ✗   Can't validate your QUANT MATH (whether your fp8 dequant + e8m0 scale apply
+got        is bit-equivalent to sglang's). nsys gives timing, not values. That needs a
+           reference comparison run (bf16-everywhere vs your fp8 build, per-layer cosine).
+
+====================================================================================================

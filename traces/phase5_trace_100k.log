@@ -1,0 +1,147 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-ptXzbHbTJIe3x6ajLqm6Va
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+├── 🔨 Created function serve_and_trace.
+└── 🔨 Created function analyze_rep.
+wrapped cmd: nsys profile -t cuda,nvtx,cudnn,cublas,osrt --cuda-graph-trace=node --force-overwrite=true --delay=540 --duration=25 --sample=none --cpuctxsw=none --output /traces/dsv4_decode_100k -- python -m sglang.launch_server --trust-remote-code --model-path deepseek-ai/DeepSeek-V4-Flash --tp 4 --moe-runner-backend flashinfer_mxfp4 --chunked-prefill-size 4096 --disable-flashinfer-autotune --swa-full-tokens-ratio 0.1 --mem-fraction-static 0.90 --enable-profile-cuda-graph --enable-layerwise-nvtx-marker --host 127.0.0.1 --port 30000
+nsys+server pid: 9
+waiting up to 625s for nsys to finalize …
+loader: server ready
+loader: warmup chat 0 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 1 -> 'Therows8tabelaA:u (                                      '
+loader: warmup chat 2 -> 'Therows8tabelaA:u (                                      '
+loader: sanity chat -> 'Paris’sCMIY9D'
+loader: long-context prompt built, chars=400365 reps=861 target_tokens=100000
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 31, pid=2985450, name=python, channel 0x00000009, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC0 GPCCLIENT_T1_0 faulted @ 0x7f2e_7c8b8000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, Graphics FECS Exception: UCODE Fatal Error (0x20)
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000003
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000004
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000005
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000006
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000007
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000008
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 13, pid=2985450, name=python, channel 0x00000009
+
+[gpu-health] [CRITICAL] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 38, pid=2985450, name=python, channel 0x00000007 0000cdc0 00000000 00000000
+
+[gpu-health] [CRITICAL] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 154, GPU recovery action changed from 0x0 (None) to 0x1 (GPU Reset Required)
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 31, pid=2985453, name=python, channel 0x00000009, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_11 faulted @ 0x7f68_ba653000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 31, pid=2985451, name=python, channel 0x00000009, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_11 faulted @ 0x7f1f_56653000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 31, pid=2985452, name=python, channel 0x00000009, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_11 faulted @ 0x7fa2_5e653000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, Graphics FECS Exception: UCODE Fatal Error (0x20)
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, Graphics FECS Exception: UCODE Fatal Error (0x20)
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, Graphics FECS Exception: UCODE Fatal Error (0x20)
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000003
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000003
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000004
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000003
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000004
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000005
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000004
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000005
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000006
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000005
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000006
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000007
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000006
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000007
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000008
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000007
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000008
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 13, pid=2985453, name=python, channel 0x00000009
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000008
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 13, pid=2985451, name=python, channel 0x00000009
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 13, pid=2985452, name=python, channel 0x00000009
+
+[gpu-health] [CRITICAL] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 38, pid=2985453, name=python, channel 0x00000007 0000cdc0 00000000 00000000
+
+[gpu-health] [CRITICAL] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 38, pid=2985451, name=python, channel 0x00000007 0000cdc0 00000000 00000000
+
+[gpu-health] [CRITICAL] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 38, pid=2985452, name=python, channel 0x00000007 0000cdc0 00000000 00000000
+
+[gpu-health] [WARN] GPU-156ac894-c991-2dcb-0ded-98adb156c92f: XID: NVRM: Xid (PCI:0000:13:00): 109, pid=2985450, name=python, channel 0x00000002, errorString CTX SWITCH TIMEOUT, Info 0x14001\x0a
+
+[gpu-health] [CRITICAL] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 154, GPU recovery action changed from 0x0 (None) to 0x1 (GPU Reset Required)
+
+[gpu-health] [CRITICAL] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 154, GPU recovery action changed from 0x0 (None) to 0x1 (GPU Reset Required)
+
+[gpu-health] [CRITICAL] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 154, GPU recovery action changed from 0x0 (None) to 0x1 (GPU Reset Required)
+
+[gpu-health] [WARN] GPU-0c1c2e08-9bd1-f5a7-d9e7-9a0a1e0f8d8e: XID: NVRM: Xid (PCI:0000:e3:00): 109, pid=2985453, name=python, channel 0x00000002, errorString CTX SWITCH TIMEOUT, Info 0x14001\x0a
+
+[gpu-health] [WARN] GPU-be25fecd-18f9-8c85-64e3-192a53afee0b: XID: NVRM: Xid (PCI:0000:93:00): 109, pid=2985452, name=python, channel 0x00000002, errorString CTX SWITCH TIMEOUT, Info 0x14001\x0a
+
+[gpu-health] [WARN] GPU-9a51ed97-b9fa-73c8-d3bc-118b73891b7e: XID: NVRM: Xid (PCI:0000:73:00): 109, pid=2985451, name=python, channel 0x00000002, errorString CTX SWITCH TIMEOUT, Info 0x14001\x0a
+
+nsys exited rc=137
+=== bench timing ===
+{
+  "ready_at": 1779252222.547063,
+  "warmup_done_at": 1779252223.948535,
+  "first_bench_at": 1779252223.9486566
+}
+rep size: 99.9 MB at /traces/dsv4_decode_100k.nsys-rep
+stats cmd: nsys stats --report cuda_gpu_kern_sum,cuda_api_sum,nvtx_sum --format csv --output /traces/dsv4_decode_stats /traces/dsv4_decode_100k.nsys-rep
+--- stats stdout (tail) ---
+Generating SQLite file /traces/dsv4_decode_100k.sqlite from /traces/dsv4_decode_100k.nsys-rep
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_gpu_kern_sum.py] to [/traces/dsv4_decode_stats_cuda_gpu_kern_sum.csv]... SKIPPED: output file /traces/dsv4_decode_stats_cuda_gpu_kern_sum.csv exists.
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/cuda_api_sum.py] to [/traces/dsv4_decode_stats_cuda_api_sum.csv]... SKIPPED: output file /traces/dsv4_decode_stats_cuda_api_sum.csv exists.
+
+Processing [/traces/dsv4_decode_100k.sqlite] with [/opt/nvidia/nsight-systems-cli/2026.2.1/target-linux-x64/reports/nvtx_sum.py] to [/traces/dsv4_decode_stats_nvtx_sum.csv]... SKIPPED: output file /traces/dsv4_decode_stats_nvtx_sum.csv exists.
+
+
+--- stats stderr (tail) ---
+
+{'rep': '/traces/dsv4_decode_100k.nsys-rep', 'rc': 137, 'bench_state': {'ready_at': 1779252222.547063, 'warmup_done_at': 1779252223.948535, 'first_bench_at': 1779252223.9486566}}
+Stopping app - local entrypoint completed.
+Runner terminated.
+Runner terminated.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-ptXzbHbTJIe3x6ajLqm6Va

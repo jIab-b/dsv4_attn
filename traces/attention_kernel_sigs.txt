@@ -1,0 +1,50 @@
+[4.3% | 61080 insts | avg 12518.5ns]  void sm100::decode::head64::flash_fwd_splitkv_mla_fp8_sparse_kernel<sm100::decode::head64::KernelTemplate<(ModelType)1>, sm100::decode::head64::KernelTemplate<(ModelType)1>::TmaParams<cute::tuple<int, int, int, int>, cute::TiledCopy<cute::Copy_Atom<cute::Copy_Traits<cute::SM90_TMA_LOAD, cute::C<(int)65536>, cute::AuxTmaParams<cute::tuple<cute::ScaledBasis<cute::C<(int)1>, (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>, (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>, const cute::Layout<cute::tuple<cute::C<(int)64>, cute::C<(int)64>, cute::C<(int)1>, cute::C<(int)1>>, cute::tuple<cute::ScaledBasis<cute::C<(int)1>, (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>, (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>> &, const cute::Swizzle<(int)3, (int)4, (int)3> &>>, cutlass::bfloat16_t>, cute::Layout<cute::tuple<cute::C<(int)1>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)64>>, cute::C<(int)8>>>>, cute::tuple<cute::C<(int)0>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)1>>, cute::C<(int)4096>>>>>, cute::tuple<cute::C<(int)64>, cute::C<(int)512>>>, cute::tuple<int, int, int, int>, cute::TiledCopy<cute::Copy_Atom<cute::Copy_Traits<cute::SM90_TMA_STORE, cute::C<(int)65536>, cute::AuxTmaParams<cute::tuple<cute::ScaledBasis<cute::C<(int)1>, (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>, (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>, const cute::Layout<cute::tuple<cute::C<(int)64>, cute::C<(int)64>, cute::C<(int)1>, cute::C<(int)1>>, cute::tuple<cute::ScaledBasis<cute::C<(int)1>, (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>, (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>> &, const cute::Swizzle<(int)3, (int)4, (int)3> &>>, cutlass::bfloat16_t>, cute::Layout<cute::tuple<cute::C<(int)1>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)64>>, cute::C<(int)1>>>>, cute::tuple<cute::C<(int)0>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)1>>, cute::C<(int)0>>>>>, cute::tuple<cute::C<(int)64>, cute::C<(int)64>>>>>(SparseAttnDecodeParams, T2)
+
+[2.1% | 61080 insts | avg 5952.1ns]  void smxx::decode::flash_fwd_mla_combine_kernel<cutlass::bfloat16_t, (int)512, (int)8, (int)160, (int)256>(CombineParams)
+
+[0.8% | 29828 insts | avg 4442.3ns]  void deep_gemm::sm100_fp8_paged_mqa_logits<(unsigned int)1, (unsigned int)64, (unsigned int)128, (unsigned int)64, (bool)1, (bool)0, (unsigned int)3, (unsigned int)4, (unsigned int)256, (unsigned int)128, (unsigned int)256, float, (unsigned int)2>(unsigned int, unsigned int, unsigned int, const unsigned int *, T12 *, const unsigned int *, const unsigned int *, const unsigned int *, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st)
+
+[0.7% | 61080 insts | avg 2030.3ns]  void tensorrt_llm::kernels::quantize_with_block_size<(tensorrt_llm::BlockScaleQuantizationType)2, __nv_bfloat16, (int)32, (bool)1, (bool)0, (bool)0>(int, int, int, int, const T2 *, const float *, void *, unsigned int *, flashinfer::QuantizationSFLayout)
+
+[0.7% | 61080 insts | avg 1998.0ns]  void <unnamed>::fused_k_norm_rope_flashmla<__nv_bfloat16, (long)512, (long)64, long, (int)8, (bool)1>(<unnamed>::FusedKNormRopeFlashMLAParams)
+
+[0.7% | 4272 insts | avg 28471.5ns]  smxx::decode::get_mla_metadata_kernel(GetDecodeSchedMetaParams)
+
+[0.6% | 61080 insts | avg 1676.2ns]  void <unnamed>::fused_q_norm_rope<__nv_bfloat16, (long)512, (long)64, long, (bool)1>(<unnamed>::FusedQNormRopeParams)
+
+[0.5% | 61080 insts | avg 1499.4ns]  void <unnamed>::deepseek_rope_kernel<(bool)1, (bool)1, long>(<unnamed>::FusedQKRopeParams)
+
+[0.4% | 29828 insts | avg 2081.4ns]  void <unnamed>::fused_q_indexer_rope_hadamard_quant<__nv_bfloat16, int, (bool)1>(<unnamed>::FusedQIndexerRopeHadamardQuantParams)
+
+[0.3% | 29156 insts | avg 1877.1ns]  void <unnamed>::flash_c4_decode<(long)128, float, float, (bool)1>(<unnamed>::Compress4DecodeParams)
+
+[0.3% | 29156 insts | avg 1632.1ns]  void <unnamed>::flash_c4_decode<(long)512, float, float, (bool)1>(<unnamed>::Compress4DecodeParams)
+
+[0.2% | 1424 insts | avg 30951.0ns]  _init_compressed_attn_metadata_kernel
+
+[0.2% | 27764 insts | avg 1433.8ns]  void <unnamed>::flash_c128_decode<(long)512, float, float, (bool)1>(<unnamed>::Compress128DecodeParams)
+
+[0.2% | 29156 insts | avg 1339.2ns]  void <unnamed>::fused_norm_rope_indexer<float, (<unnamed>::ForwardMode)1, (int)6, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+
+[0.2% | 29156 insts | avg 1133.8ns]  void <unnamed>::fused_norm_rope_flashmla<float, (<unnamed>::ForwardMode)1, (int)6, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+
+[0.2% | 27764 insts | avg 994.8ns]  void <unnamed>::fused_norm_rope_flashmla<float, (<unnamed>::ForwardMode)1, (int)1, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+
+[0.0% | 1424 insts | avg 3492.7ns]  <unnamed>::smxx_paged_mqa_logits_metadata(<unnamed>::MetadataParams)
+
+[0.0% | 588 insts | avg 2649.7ns]  void <unnamed>::flash_c4_prefill<(long)512, float, float, (bool)1>(<unnamed>::Compress4PrefillParams)
+
+[0.0% | 588 insts | avg 2533.6ns]  void <unnamed>::flash_c4_prefill<(long)128, float, float, (bool)1>(<unnamed>::Compress4PrefillParams)
+
+[0.0% | 672 insts | avg 1940.8ns]  void <unnamed>::write_c4_prefill<(long)128, float, float, (bool)1>(<unnamed>::Compress4PrefillParams)
+
+[0.0% | 588 insts | avg 2215.9ns]  void <unnamed>::fused_norm_rope_indexer<float, (<unnamed>::ForwardMode)0, (int)6, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+
+[0.0% | 672 insts | avg 1786.8ns]  void <unnamed>::write_c4_prefill<(long)512, float, float, (bool)1>(<unnamed>::Compress4PrefillParams)
+
+[0.0% | 588 insts | avg 1995.1ns]  void <unnamed>::fused_norm_rope_flashmla<float, (<unnamed>::ForwardMode)0, (int)6, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+
+[0.0% | 160 insts | avg 3675.6ns]  void <unnamed>::flash_c128_prefill<(long)512, float, float, (bool)1>(<unnamed>::Compress128PrefillParams)
+
+[0.0% | 160 insts | avg 2200.4ns]  void <unnamed>::fused_norm_rope_flashmla<float, (<unnamed>::ForwardMode)0, (int)1, (bool)1>(<unnamed>::FusedNormRopeStoreParams)
+

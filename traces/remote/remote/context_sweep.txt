@@ -1,0 +1,19 @@
+DSv4-Flash decode latency sweep — 4x B200, TP=4, sglang 0.5.12
+targets: 4k, 8k, 16k, 32k, 50k, 100k, 150k, 200k, 250k, 300k, 350k, 400k, 450k, 500k  num_repeats=1  max_new_tokens=128
+
+ target  rep  prompt_tok  compl_tok   wall_s   ttft_s  decode_s     tok/s   ms/step   error
+------------------------------------------------------------------------------------------------------------------------
+     4k    0        4015         38    6.714    6.298     0.229     165.7       6.2   ChunkedEncodingError(ProtocolError('Response ended prematurely'))
+     8k    0        8030         19    1.937     1.55     0.142     134.1      7.87   ChunkedEncodingError(ProtocolError('Response ended prematurely'))
+    16k    0       16060          3    1.955    1.801     0.012     260.1      5.77   ChunkedEncodingError(ProtocolError('Response ended prematurely'))
+    32k    0       32047         24    7.403    7.133     0.142     168.5      6.19   ChunkedEncodingError(ProtocolError('Response ended prematurely'))
+    50k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   100k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   150k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   200k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   250k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   300k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   350k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   400k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   450k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted
+   500k    0        None       None     None     None      None      None      None   server dead and max restarts exhausted

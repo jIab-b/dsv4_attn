@@ -1,0 +1,399 @@
+====================================================================================================
+DSv4-Flash decode @ 4xB200 TP=4 — dominant CUDA kernels
+Source: traces/remote/dsv4_decode_stats_cuda_gpu_kern_sum.csv
+Capture: 25s steady-state batched decode, ~1000 tok/s aggregate, sglang 0.5.12 + nsys 2026.2.1
+Note: 'Time (%)' is fraction of total GPU kernel time (all 4 ranks aggregated).
+====================================================================================================
+
+ROLLED-UP TIME BY ROLE (across all kernel-name variants)
+----------------------------------------------------------------------------------------------------
+   20.50%   TP_ALLREDUCE_CUSTOM
+   14.80%   MOE_GEMM_FP8FP4
+   12.00%   mHC_POST
+    7.90%   OTHER
+    5.70%   CUBLASLT_GEMM
+    5.60%   MOE_BMM_SWIGLU
+    4.30%   ATTN_MLA_SPARSE
+    4.10%   mHC_PRE
+    3.80%   MOE_BMM
+    3.20%   FP8_QUANT_PER_TOKEN
+    2.80%   TP_ALLREDUCE_NCCL
+    2.40%   mHC_PRENORM_GEMM
+    2.10%   ATTN_SPLITK_COMBINE
+    2.10%   CUBLASLT_SPLITK_REDUCE
+    1.90%   ELEMENTWISE_COPY
+    1.30%   MOE_FINALIZE
+    1.20%   MOE_GATING
+    0.80%   ATTN_TOPK_SCORE
+    0.70%   FP8_QUANT_BLOCK
+    0.70%   ATTN_KNORM_ROPE
+    0.70%   ATTN_PLANNER
+    0.60%   MOE_ROUTING_IDX
+
+====================================================================================================
+TOP 25 INDIVIDUAL KERNELS (full unmangled signature)
+====================================================================================================
+
+#01  20.50%   role=TP_ALLREDUCE_CUSTOM
+     instances =   122,884   total =  3621.47 ms   avg =   29.47 us
+     full signature:
+       void <unnamed>::all_reduce_one_shot_push_kernel<__nv_bfloat16, (unsigned int)4, (bool)1>(<unnamed>::AllReducePushData,
+            device::distributed::PushController)
+
+#02  12.10%   role=MOE_GEMM_FP8FP4
+     instances =   333,340   total =  2139.98 ms   avg =    6.42 us
+     full signature:
+       void deep_gemm::sm100_fp8_fp4_gemm_1d1d_impl<(cute::UMMA::Major)0, (cute::UMMA::Major)0,
+            (unsigned int)128, (unsigned int)128, (unsigned int)0, (unsigned int)0, (unsigned int)0,
+            (unsigned int)16, (unsigned int)128, (unsigned int)128, (unsigned int)1, (unsigned int)128,
+            (unsigned int)128, (unsigned int)128, (unsigned int)12, (unsigned int)128, (unsigned int)128,
+            (unsigned int)2, (bool)1, (unsigned int)148, (bool)1, (deep_gemm::GemmType)0, (bool)0,
+            cutlass::float_e4m3_t, cutlass::float_e4m3_t, cutlass::bfloat16_t, deep_gemm::epilogue::transform::EpilogueIdentity>(int *,
+            unsigned int, unsigned int, unsigned int, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st,
+            CUtensorMap_st, CUtensorMap_st)
+
+#03  12.00%   role=mHC_POST
+     instances =   122,156   total =  2117.35 ms   avg =   17.33 us
+     full signature:
+       mhc_post_tilelang_kernel
+
+#04   4.60%   role=CUBLASLT_GEMM
+     instances =   147,040   total =   812.67 ms   avg =    5.53 us
+     full signature:
+       nvjet_tss_32x64_64x16_4x1_v_bz_splitK_TNN
+
+#05   4.30%   role=ATTN_MLA_SPARSE
+     instances =    61,080   total =   764.63 ms   avg =   12.52 us
+     full signature:
+       void sm100::decode::head64::flash_fwd_splitkv_mla_fp8_sparse_kernel<sm100::decode::head64::KernelTemplate<(ModelType)1>,
+            sm100::decode::head64::KernelTemplate<(ModelType)1>::TmaParams<cute::tuple<int,
+            int, int, int>, cute::TiledCopy<cute::Copy_Atom<cute::Copy_Traits<cute::SM90_TMA_LOAD,
+            cute::C<(int)65536>, cute::AuxTmaParams<cute::tuple<cute::ScaledBasis<cute::C<(int)1>,
+            (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>,
+            (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>, const cute::Layout<cute::tuple<cute::C<(int)64>,
+            cute::C<(int)64>, cute::C<(int)1>, cute::C<(int)1>>, cute::tuple<cute::ScaledBasis<cute::C<(int)1>,
+            (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>,
+            (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>> &, const cute::Swizzle<(int)3,
+            (int)4, (int)3> &>>, cutlass::bfloat16_t>, cute::Layout<cute::tuple<cute::C<(int)1>,
+            cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)64>>, cute::C<(int)8>>>>,
+            cute::tuple<cute::C<(int)0>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>,
+            cute::C<(int)1>>, cute::C<(int)4096>>>>>, cute::tuple<cute::C<(int)64>, cute::C<(int)512>>>,
+            cute::tuple<int, int, int, int>, cute::TiledCopy<cute::Copy_Atom<cute::Copy_Traits<cute::SM90_TMA_STORE,
+            cute::C<(int)65536>, cute::AuxTmaParams<cute::tuple<cute::ScaledBasis<cute::C<(int)1>,
+            (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>,
+            (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>, const cute::Layout<cute::tuple<cute::C<(int)64>,
+            cute::C<(int)64>, cute::C<(int)1>, cute::C<(int)1>>, cute::tuple<cute::ScaledBasis<cute::C<(int)1>,
+            (int)1>, cute::ScaledBasis<cute::C<(int)1>, (int)0>, cute::ScaledBasis<cute::C<(int)1>,
+            (int)2>, cute::ScaledBasis<cute::C<(int)1>, (int)3>>> &, const cute::Swizzle<(int)3,
+            (int)4, (int)3> &>>, cutlass::bfloat16_t>, cute::Layout<cute::tuple<cute::C<(int)1>,
+            cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>, cute::C<(int)64>>, cute::C<(int)1>>>>,
+            cute::tuple<cute::C<(int)0>, cute::tuple<cute::tuple<cute::tuple<cute::C<(int)64>,
+            cute::C<(int)1>>, cute::C<(int)0>>>>>, cute::tuple<cute::C<(int)64>, cute::C<(int)64>>>>>(SparseAttnDecodeParams,
+            T2)
+
+#06   4.10%   role=mHC_PRE
+     instances =   122,160   total =   723.70 ms   avg =    5.92 us
+     full signature:
+       mhc_pre_big_fuse_with_norm_tilelang_kernel
+
+#07   3.60%   role=MOE_BMM
+     instances =    60,734   total =   636.07 ms   avg =   10.47 us
+     full signature:
+       bmm_Bfloat16_MxE2m1MxE4m3_Fp32_bA32_bB32_t128x8x512_s3_et128x8_m128x8x32_c1x1x1_16dp256b_rM_TN_transOut_schPd2x1x2x3_biasFp32M_bN_rgTma_clmp_dynB_sm100f
+
+#08   3.60%   role=MOE_BMM_SWIGLU
+     instances =    32,872   total =   634.01 ms   avg =   19.29 us
+     full signature:
+       bmm_MxE4m3_MxE2m1MxE4m3_Fp32_bA32_bB32_bC32_t128x8x512u2_s3_et128x8_m128x8x32_c1x1x1_16dp256b_rM_TN_transOut_schPd2x1x2x3_biasFp32M_bN_tma_ldgstsSf_rgTma_clmp_swiGlu_dynB_sm100f
+
+#09   2.80%   role=TP_ALLREDUCE_NCCL
+     instances =       696   total =   493.04 ms   avg =  708.39 us
+     full signature:
+       ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<(unsigned long)4096>)
+
+#10   2.70%   role=FP8_QUANT_PER_TOKEN
+     instances =   335,228   total =   475.41 ms   avg =    1.42 us
+     full signature:
+       void per_token_group_quant_8bit_kernel<NaiveScheduler, (int)128, (int)8, __nv_bfloat16,
+            c10::Float8_e4m3fn, (bool)1, (bool)1, (bool)0, unsigned int>(const T4 *, T5 *, T9 *,
+            const int *, int, int, int, int, int)
+
+#11   2.60%   role=MOE_GEMM_FP8FP4
+     instances =    60,736   total =   460.50 ms   avg =    7.58 us
+     full signature:
+       void deep_gemm::sm100_fp8_fp4_gemm_1d1d_impl<(cute::UMMA::Major)0, (cute::UMMA::Major)0,
+            (unsigned int)128, (unsigned int)128, (unsigned int)0, (unsigned int)1024, (unsigned int)4096,
+            (unsigned int)16, (unsigned int)128, (unsigned int)128, (unsigned int)2, (unsigned int)128,
+            (unsigned int)128, (unsigned int)128, (unsigned int)12, (unsigned int)128, (unsigned int)128,
+            (unsigned int)2, (bool)1, (unsigned int)148, (bool)1, (deep_gemm::GemmType)4, (bool)0,
+            cutlass::float_e4m3_t, cutlass::float_e4m3_t, cutlass::bfloat16_t, deep_gemm::epilogue::transform::EpilogueIdentity>(int *,
+            unsigned int, unsigned int, unsigned int, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st,
+            CUtensorMap_st, CUtensorMap_st)
+
+#12   2.30%   role=mHC_PRENORM_GEMM
+     instances =   121,472   total =   414.63 ms   avg =    3.41 us
+     full signature:
+       void deep_gemm::sm100_tf32_hc_prenorm_gemm_impl<(unsigned int)24, (unsigned int)16384,
+            (unsigned int)64, (unsigned int)32, (unsigned int)64, (unsigned int)64, (unsigned int)128,
+            (unsigned int)12, (unsigned int)128, (unsigned int)128>(unsigned int, CUtensorMap_st,
+            CUtensorMap_st, CUtensorMap_st, float *)
+
+#13   2.10%   role=ATTN_SPLITK_COMBINE
+     instances =    61,080   total =   363.55 ms   avg =    5.95 us
+     full signature:
+       void smxx::decode::flash_fwd_mla_combine_kernel<cutlass::bfloat16_t, (int)512, (int)8,
+            (int)160, (int)256>(CombineParams)
+
+#14   1.70%   role=CUBLASLT_SPLITK_REDUCE
+     instances =   147,808   total =   296.71 ms   avg =    2.01 us
+     full signature:
+       void cublasLt::splitKreduce_kernel<(int)32, (int)16, int, float, float, float, float,
+            (bool)0, float, float, float, (bool)1, (bool)0, (bool)0, (bool)0>(cublasLt::cublasSplitKParams<T6>,
+            const T4 *, const T10 *, T9 *, T5 *, const T6 *, const T6 *, const T11 *, const T4 *,
+            T11 *, void *, long, T6 *, int *, T6 *, T6 *, const T6 *, const T6 *, const T6 *,
+            const T6 *, const T6 *)
+
+#15   1.60%   role=MOE_BMM_SWIGLU
+     instances =    27,864   total =   279.67 ms   avg =   10.04 us
+     full signature:
+       bmm_MxE4m3_MxE2m1MxE4m3_Fp32_bA32_bB32_bC32_t128x8x512u2_s3_et128x8_m128x8x32_c1x1x1_16dp256b_rM_TN_transOut_schedS_biasFp32M_bN_tma_ldgstsSf_rgTma_clmp_swiGlu_dynB_sm100f
+
+#16   1.30%   role=MOE_FINALIZE
+     instances =    60,732   total =   231.58 ms   avg =    3.81 us
+     full signature:
+       void moe::dev::finalize::finalizeKernel<moe::dev::finalize::KernelParams<cutlass::bfloat16_t,
+            cutlass::bfloat16_t, (int)2, (bool)1>>(T1)
+
+#17   1.20%   role=MOE_GATING
+     instances =    56,488   total =   215.53 ms   avg =    3.82 us
+     full signature:
+       void <unnamed>::moe_fused_gate_kernel_small_token<(unsigned int)8, (<unnamed>::ScoringFunc)1>(<unnamed>::MoEFusedGateParams)
+
+#18   0.80%   role=ATTN_TOPK_SCORE
+     instances =    29,828   total =   132.50 ms   avg =    4.44 us
+     full signature:
+       void deep_gemm::sm100_fp8_paged_mqa_logits<(unsigned int)1, (unsigned int)64, (unsigned int)128,
+            (unsigned int)64, (bool)1, (bool)0, (unsigned int)3, (unsigned int)4, (unsigned int)256,
+            (unsigned int)128, (unsigned int)256, float, (unsigned int)2>(unsigned int, unsigned int,
+            unsigned int, const unsigned int *, T12 *, const unsigned int *, const unsigned int *,
+            const unsigned int *, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st)
+
+#19   0.70%   role=CUBLASLT_GEMM
+     instances =    29,408   total =   124.38 ms   avg =    4.23 us
+     full signature:
+       nvjet_tst_32x64_64x16_2x1_v_bz_splitK_TNN
+
+#20   0.70%   role=FP8_QUANT_BLOCK
+     instances =    61,080   total =   124.01 ms   avg =    2.03 us
+     full signature:
+       void tensorrt_llm::kernels::quantize_with_block_size<(tensorrt_llm::BlockScaleQuantizationType)2,
+            __nv_bfloat16, (int)32, (bool)1, (bool)0, (bool)0>(int, int, int, int, const T2 *,
+            const float *, void *, unsigned int *, flashinfer::QuantizationSFLayout)
+
+#21   0.70%   role=ATTN_KNORM_ROPE
+     instances =    61,080   total =   122.04 ms   avg =    2.00 us
+     full signature:
+       void <unnamed>::fused_k_norm_rope_flashmla<__nv_bfloat16, (long)512, (long)64, long,
+            (int)8, (bool)1>(<unnamed>::FusedKNormRopeFlashMLAParams)
+
+#22   0.70%   role=ATTN_PLANNER
+     instances =     4,272   total =   121.63 ms   avg =   28.47 us
+     full signature:
+       smxx::decode::get_mla_metadata_kernel(GetDecodeSchedMetaParams)
+
+#23   0.70%   role=ELEMENTWISE_COPY
+     instances =    35,392   total =   119.61 ms   avg =    3.38 us
+     full signature:
+       void at::native::elementwise_kernel<(int)128, (int)4, void at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase &)::[lambda() (instance 3)]::operator ()() const::[lambda() (instance 12)]::operator ()() const::[lambda(c10::BFloat16) (instance 1)]>(at::TensorIteratorBase &,
+            const T1 &)::[lambda(int) (instance 1)]>(int, T3)
+
+#24   0.60%   role=MOE_ROUTING_IDX
+     instances =    32,872   total =   111.40 ms   avg =    3.39 us
+     full signature:
+       void moe::dev::routing::routingCustom::routingIndicesDynBlockKernel<moe::dev::routing::routingCustom::KernelParams<__nv_bfloat16,
+            __nv_bfloat16, (int)256, (int)8, moe::dev::routing::TopKExpertSelect<moe::dev::routing::NoOpPreprocess,
+            moe::dev::routing::SoftmaxPostprocess>>>(T1)
+
+#25   0.60%   role=OTHER
+     instances =    61,080   total =   102.38 ms   avg =    1.68 us
+     full signature:
+       void <unnamed>::fused_q_norm_rope<__nv_bfloat16, (long)512, (long)64, long, (bool)1>(<unnamed>::FusedQNormRopeParams)
+
+====================================================================================================
+INTERPRETATION (what each role does in DSv4 decode)
+====================================================================================================
+
+TP_ALLREDUCE_CUSTOM        sglang's custom one-shot push-collective bf16 allreduce, fanout after
+                           every TP-sharded matmul (attention out-proj, MoE expert outputs).
+                           ~123k launches / 25s → ~4900 allreduces/sec at TP=4.
+
+TP_ALLREDUCE_NCCL          stock NCCL RING_LL allreduce, used for smaller / less hot collectives
+                           (some norms, lm_head shard).
+
+MOE_GEMM_FP8FP4            deep_gemm sm100 FP8(act) x FP4(weight) → bf16 GEMM. The hot path for
+                           routed-expert ffn: gate_up_proj + down_proj. Multiple shapes are
+                           specialized (different M/N/K, group counts).
+
+MOE_BMM / MOE_BMM_SWIGLU   Per-expert batched matmul kernels (CUDA-Q / TRT-LLM blockwise). The
+                           swiGlu variants fuse activation. Used for grouped expert paths
+                           that don't go through deep_gemm.
+
+mHC_PRE / mHC_POST         Manifold-Constrained Hyper-Connection pre- and post-block kernels.
+                           tilelang-generated. They project the residual stream onto the
+                           manifold and project back, with a fused norm on the pre side.
+
+mHC_PRENORM_GEMM           TF32 GEMM doing the H x C residual-mix matmul of mHC. Small but
+                           per-layer per-token.
+
+ATTN_MLA_SPARSE            FlashMLA decode kernel: split-K, FP8 e4m3 latent K + bf16 rope,
+                           sparse top-k entry selection. Handles BOTH CSA layers (real
+                           top-k) and HCA layers (all-entries dense, same kernel).
+
+ATTN_SPLITK_COMBINE        Reduces split-K partials into final attention output (per-head O
+                           and LSE). One per attention call. ← maps to your launch_hca_combine.
+
+ATTN_TOPK_SCORE            paged_mqa_logits — computes scores to PICK the top-k compressed
+                           KV entries (CSA-only path). Cheap because compressed entry count
+                           is small.
+
+ATTN_PLANNER               get_mla_metadata — produces split-K plan + per-request stride
+                           tables. Runs once per batch (not per layer), so its absolute count
+                           is low (~4k).
+
+ATTN_KNORM_ROPE            fused_k_norm_rope_flashmla — RMSNorm on K plus RoPE in one kernel.
+                           ← your sketch keeps these as separate steps; collapsing them is a
+                           win you can replicate.
+
+MOE_GATING                 moe_fused_gate_kernel_small_token — computes per-token expert top-k
+                           routing scores.
+
+MOE_ROUTING_IDX            routingIndicesDynBlockKernel — converts gate scores into the
+                           per-expert token index buffers used by the grouped GEMMs.
+
+MOE_FINALIZE               Sums expert outputs back into per-token vectors.
+
+FP8_QUANT_PER_TOKEN        per_token_group_quant_8bit_kernel — bf16 → fp8 e4m3 with per-group
+                           e8m0 microscale. Run before each FP8 GEMM input.
+
+FP8_QUANT_BLOCK            TRT-LLM block-scale FP8 quantizer (variant used by flashinfer).
+
+CUBLASLT_GEMM              nvjet_t{ss,st}_splitK_TNN — cuBLASLt GEMMs for non-MoE matmuls
+                           (lm_head, attention proj fallbacks).
+
+CUBLASLT_SPLITK_REDUCE     reduction half of cuBLASLt's split-K GEMM path.
+
+ELEMENTWISE_COPY           Torch direct_copy_kernel (dtype casts in the residual stream).
+
+
+====================================================================================================
+ADDENDUM — full attention-kernel taxonomy (added on review)
+====================================================================================================
+
+The first pass surfaced only the top-25 by time and rolled "attention" into one bucket. There are
+actually 13 distinct attention/RoPE/norm/planner kernels. Listing them all, with what each does:
+
+  Time   Insts    Kernel  (param struct)
+  ----   ------   -------------------------------------------------------------------
+  4.30%  61,080   flash_fwd_splitkv_mla_fp8_sparse_kernel<ModelType=1>
+                  (SparseAttnDecodeParams)
+                  -> SWA branch + CSA top-k sparse attention. Fires per decode step for
+                     every layer that has an MLA-flavored attention.
+
+  2.10%  61,080   smxx::decode::flash_fwd_mla_combine_kernel<bf16, 512, 8, 160, 256>
+                  (CombineParams)
+                  -> Reduces split-K partials -> final O + LSE. Shared by CSA / HCA.
+                     Maps directly to your launch_hca_combine.
+
+  0.80%  29,828   deep_gemm::sm100_fp8_paged_mqa_logits<1, 64, 128, 64, true, false, 3, 4,
+                                                        256, 128, 256, float, 2>
+                  -> CSA-only top-k SCORING: computes attention logits against compressed
+                     entries to pick the top-k. Counterpart on the Q side is the indexer
+                     kernel below.
+
+  0.70%  61,080   fused_k_norm_rope_flashmla<bf16, (long)512, (long)64, long, (int)8, true>
+                  (FusedKNormRopeFlashMLAParams)
+                  -> K-RMSNorm + RoPE in one kernel. Shared by both branches.
+                     Your sketch keeps these as separate steps; collapsing is a win.
+
+  0.70%  4,272    smxx::decode::get_mla_metadata_kernel
+                  (GetDecodeSchedMetaParams)
+                  -> Split-K planner. Runs ~once per batch (not per layer). Shared.
+
+  0.60%  61,080   fused_q_norm_rope<bf16, (long)512, (long)64, long, true>
+                  (FusedQNormRopeParams)
+                  -> Q-RMSNorm + RoPE. Shared by both branches.
+
+  0.50%  61,080   deepseek_rope_kernel<true, true, long>
+                  (FusedQKRopeParams)
+                  -> The non-MLA RoPE path (some layers use this instead of the MLA-fused
+                     pair). Likely the SWA-branch RoPE.
+
+  0.40%  29,828   fused_q_indexer_rope_hadamard_quant<bf16, int, true>
+                  (FusedQIndexerRopeHadamardQuantParams)
+                  -> CSA-only Q-indexer: RoPE + Hadamard transform + FP8 quant on Q,
+                     to match the format paged_mqa_logits expects for scoring.
+
+  0.30%  29,156   flash_c4_decode<(long)128, float, float, true>
+                  (Compress4DecodeParams)
+                  -> CSA / HCA dense decode kernel (head-dim variant 128). The "c4" name
+                     refers to the Compress-4 (CSA m=4) kernel family; same family also
+                     services HCA's dense-over-compressed-entries branch with different
+                     template params and a different number of entries.
+
+  0.30%  29,156   flash_c4_decode<(long)512, float, float, true>
+                  (Compress4DecodeParams)
+                  -> Same family, latent-dim 512 variant. Same instance count as the
+                     <128> form -> they fire as a pair.
+
+  0.30%  1,420    _hc_head_kernel
+                  -> mHC head-level kernel. ~56 fires/sec at TP=4 -> one per decode
+                     step, not per layer. Part of the manifold hyper-connection.
+
+  0.00%  1,424    smxx_paged_mqa_logits_metadata
+                  -> CSA scoring metadata planner.
+
+  0.00%  588      flash_c4_prefill<(long)128/512, float, float, true>
+                  -> Prefill-phase variants of flash_c4_decode. Fires only during the
+                     four prefill batches that happened in the 25 s window.
+
+INSTANCE-COUNT FINGERPRINT (what fired with what frequency):
+  61,080 = SWA + (CSA-or-HCA per-layer attention) executions
+  29,828 = CSA-only score/indexer pairs                 ~half of 61,080
+  29,156 = "Compress4DecodeParams" dense paths          ~half of 61,080
+  4,272  = MLA metadata planner (per-batch)
+  1,420  = mHC head kernel (per-decode-step)
+  1,396  = cuda graph launches (one per decode step, system-wide)
+
+The 29k / 29k split is consistent with DSv4-Flash's CSA/HCA interleave: roughly half the
+layers run the CSA top-k path (paged_mqa_logits + fused_q_indexer_rope_hadamard_quant)
+and roughly half run the HCA dense path (flash_c4_decode). The 61k "sparse" kernel and
+its associated norms+rope are the SHARED outer attention pass that both layer types do.
+
+====================================================================================================
+CONTEXT-LENGTH CAVEAT
+====================================================================================================
+
+This trace was captured at ~2.5-3 k tokens of context per request (server log:
+'#full token: 2560'). That is well above HCA's m'=128 compression threshold so HCA had
+real work to do, but it's far short of the long-context regime DSv4 was designed for.
+At 1M tokens, HCA would attend to ~7,800 compressed entries and the c4_decode kernels
+should grow from 0.3% to a much larger share. CSA's top-k path stays roughly flat in
+relative cost because top-k is bounded.
+
+A useful follow-up: rerun the same trace with a ~100 k-token prompt to surface HCA's
+true workload character.
+
+====================================================================================================
+WHAT'S MISSING TO CLEANLY SEPARATE CSA vs HCA
+====================================================================================================
+
+The per-layer NVTX ranges sglang emits are generic ('layers.N', 'layers.N.self_attn') and
+don't tag layer type. To attribute time cleanly to CSA-layers vs HCA-layers you'd need
+one of:
+
+  1. sglang source dive: read DeepseekV4ForCausalLM's layer list to know which N is which.
+  2. Custom NVTX: wrap forward() of the CompressedSparseAttention and HeavilyCompressedAttention
+     classes with explicit nvtx.range_push("CSA")/("HCA"), then re-run.
+  3. Instance-count attribution: assume Compress4DecodeParams = HCA, SparseAttnDecodeParams = CSA,
+     and split the 61,080 shared kernels by the ratio of their downstream-specific kernels.
+     Rough enough but not authoritative.

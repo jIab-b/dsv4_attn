@@ -1,0 +1,262 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-BhkASt77YP2FgZhiOqPJw2
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function download_weights.
+├── 🔨 Created function sanity.
+├── 🔨 Created function serve_and_trace.
+├── 🔨 Created function sweep_context_lengths.
+└── 🔨 Created function analyze_rep.
+server cmd: python -m sglang.launch_server --trust-remote-code --model-path deepseek-ai/DeepSeek-V4-Flash --tp 4 --moe-runner-backend flashinfer_mxfp4 --chunked-prefill-size 4096 --disable-flashinfer-autotune --swa-full-tokens-ratio 0.1 --mem-fraction-static 0.90 --enable-profile-cuda-graph --enable-layerwise-nvtx-marker --host 127.0.0.1 --port 30000
+server pid: 9
+server ready
+[gpu-health] [WARN] GPU-15151cf2-0f39-6dbe-1e7f-7ca0227cc8e5: XID: NVRM: Xid (PCI:0000:83:00): 43, pid=132885, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-c19ecbee-1897-b280-69ef-f3daf5a8bdf6: XID: NVRM: Xid (PCI:0000:13:00): 43, pid=132884, name=python, channel 0x00000002
+
+[gpu-health] [WARN] GPU-bc286101-f4e2-543f-2605-204f4622b00d: XID: NVRM: Xid (PCI:0000:e3:00): 43, pid=132887, name=python, channel 0x00000002
+
+warmup done
+[gpu-health] [WARN] GPU-ff879b2d-0c26-0aa3-1e59-9f7376a1c323: XID: NVRM: Xid (PCI:0000:93:00): 43, pid=132886, name=python, channel 0x00000002
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line 788, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line 493, in _make_request
+    conn.request(
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 500, in request
+    self.endheaders()
+  File "/usr/lib/python3.12/http/client.py", line 1351, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1111, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.12/http/client.py", line 1055, in send
+    self.connect()
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 331, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPConnection(host='127.0.0.1', port=30000): Failed to establish a new connection: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/requests/adapters.py", line 667, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line 842, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/retry.py", line 543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=30000): Max retries exceeded with url: /generate (Caused by NewConnectionError("HTTPConnection(host='127.0.0.1', port=30000): Failed to establish a new connection: [Errno 111] Connection refused"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/pkg/modal/_runtime/container_io_manager.py", line 947, in handle_input_exception
+    yield
+  File "/pkg/modal/_container_entrypoint.py", line 172, in run_input_sync
+    values = io_context.call_function_sync()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pkg/modal/_runtime/container_io_manager.py", line 225, in call_function_sync
+    expected_value_or_values = self.finalized_function.callable(*args, **kwargs)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/modal_app.py", line 458, in sweep_context_lengths
+    probe = requests.post(
+            ^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/sessions.py", line 589, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/sessions.py", line 703, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/adapters.py", line 700, in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=30000): Max retries exceeded with url: /generate (Caused by NewConnectionError("HTTPConnection(host='127.0.0.1', port=30000): Failed to establish a new connection: [Errno 111] Connection refused"))
+Stopping app - uncaught exception raised locally: ExecutionError('Could not deserialize remote exception due to local error:\nDeserialization failed because the \'requests\' module is not available in the local environment.\nThis can happen if your local environment does not have the remote exception definitions.\nHere is the remote traceback:\nTraceback (most recent call last):\n  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 204, in _new_conn\n    sock = connection.create_connection(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", line 85, in create_connection\n    raise err\n  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", line 73, in create_connection\n    sock.connect(sa)\nConnectionRefusedError: [Errno 111] Connection refused\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpo.
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_s │
+│ erialization.py:113 in deserialize                                           │
+│                                                                              │
+│   112 │   try:                                                               │
+│ ❱ 113 │   │   return Unpickler(client, io.BytesIO(s)).load()                 │
+│   114 │   except AttributeError as exc:                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ModuleNotFoundError: No module named 'requests'
+
+The above exception was the direct cause of the following exception:
+
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /home/beed/dsv4_attn/traces/modal_app.py:666 in main                         │
+│                                                                              │
+│   665 │   elif stage == "sweep":                                             │
+│ ❱ 666 │   │   print(sweep_context_lengths.remote())                          │
+│   667 │   else:                                                              │
+│                                                                              │
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_o │
+│ bject.py:46 in wrapped                                                       │
+│                                                                              │
+│    45 │   │   await self.hydrate()                                           │
+│ ❱  46 │   │   return await method(self, *args, **kwargs)                     │
+│    47                                                                        │
+│                                                                              │
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_f │
+│ unctions.py:1699 in remote                                                   │
+│                                                                              │
+│   1698 │   │                                                                 │
+│ ❱ 1699 │   │   return await self._call_function(args, kwargs)                │
+│   1700                                                                       │
+│                                                                              │
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_f │
+│ unctions.py:1643 in _call_function                                           │
+│                                                                              │
+│   1642 │   │                                                                 │
+│ ❱ 1643 │   │   return await invocation.run_function()                        │
+│   1644                                                                       │
+│                                                                              │
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_f │
+│ unctions.py:291 in run_function                                              │
+│                                                                              │
+│    290 │   │   │   item = await self._get_single_output()                    │
+│ ❱  291 │   │   │   return await _process_result(item.result, item.data_forma │
+│    292                                                                       │
+│                                                                              │
+│ /home/beed/.local/share/uv/tools/modal/lib/python3.13/site-packages/modal/_u │
+│ tils/function_utils.py:502 in _process_result                                │
+│                                                                              │
+│   501 │   │   │   except DeserializationError as deser_exc:                  │
+│ ❱ 502 │   │   │   │   raise ExecutionError(                                  │
+│   503 │   │   │   │   │   "Could not deserialize remote exception due to loc │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ExecutionError: Could not deserialize remote exception due to local error:
+Deserialization failed because the 'requests' module is not available in the 
+local environment.
+This can happen if your local environment does not have the remote exception 
+definitions.
+Here is the remote traceback:
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 
+204, in _new_conn
+    sock = connection.create_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", 
+line 85, in create_connection
+    raise err
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/connection.py", 
+line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line
+788, in urlopen
+    response = self._make_request(
+               ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line
+493, in _make_request
+    conn.request(
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 
+500, in request
+    self.endheaders()
+  File "/usr/lib/python3.12/http/client.py", line 1351, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1111, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.12/http/client.py", line 1055, in send
+    self.connect()
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 
+331, in connect
+    self.sock = self._new_conn()
+                ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connection.py", line 
+219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPConnection(host='127.0.0.1', 
+port=30000): Failed to establish a new connection: [Errno 111] Connection 
+refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/requests/adapters.py", line 667,
+in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/connectionpool.py", line
+842, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/urllib3/util/retry.py", line 
+543, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: 
+ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', 
+port=30000): Max retries exceeded with url: /generate (Caused by 
+NewConnectionError("HTTPConnection(host='127.0.0.1', port=30000): Failed to 
+establish a new connection: [Errno 111] Connection refused"))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/pkg/modal/_runtime/container_io_manager.py", line 947, in 
+handle_input_exception
+    yield
+  File "/pkg/modal/_container_entrypoint.py", line 172, in run_input_sync
+    values = io_context.call_function_sync()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pkg/modal/_runtime/container_io_manager.py", line 225, in 
+call_function_sync
+    expected_value_or_values = self.finalized_function.callable(*args, **kwargs)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/modal_app.py", line 458, in sweep_context_lengths
+    probe = requests.post(
+            ^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/api.py", line 115, in 
+post
+    return request("post", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/api.py", line 59, in 
+request
+    return session.request(method=method, url=url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/sessions.py", line 589,
+in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/sessions.py", line 703,
+in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/requests/adapters.py", line 700,
+in send
+    raise ConnectionError(e, request=request)
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', 
+port=30000): Max retries exceeded with url: /generate (Caused by 
+NewConnectionError("HTTPConnection(host='127.0.0.1', port=30000): Failed to 
+establish a new connection: [Errno 111] Connection refused"))
+

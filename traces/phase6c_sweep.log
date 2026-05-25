@@ -1,0 +1,57 @@
+✓ Initialized. View run at 
+https://modal.com/apps/sam-mac446/main/ap-kH5fTQYR9dqaHQx4t5aVL4
+✓ Created objects.
+├── 🔨 Created mount /home/beed/dsv4_attn/traces/modal_app.py
+├── 🔨 Created function sanity.
+├── 🔨 Created function download_weights.
+├── 🔨 Created function serve_and_trace.
+├── 🔨 Created function sweep_context_lengths.
+└── 🔨 Created function analyze_rep.
+server cmd: python -m sglang.launch_server --trust-remote-code --model-path deepseek-ai/DeepSeek-V4-Flash --tp 4 --moe-runner-backend flashinfer_mxfp4 --chunked-prefill-size 4096 --disable-flashinfer-autotune --swa-full-tokens-ratio 0.1 --mem-fraction-static 0.90 --enable-profile-cuda-graph --enable-layerwise-nvtx-marker --host 127.0.0.1 --port 30000
+server pid: 9
+server ready
+server ready
+base paragraph encodes to ~73 tokens per rep
+[gpu-health] [WARN] GPU-6dcac00b-57e7-bcad-2e27-00d2452d32aa: XID: NVRM: Xid (PCI:0000:83:00): 31, pid=552690, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC1 GPCCLIENT_T1_0 faulted @ 0x7f70_0aaa5000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+  target=4k rep=0 -> {'target_k': 4, 'repeat': 0, 'prompt_tokens': 4015, 'completion_tokens': 38, 'wall_s': 6.714, 'ttft_s': 6.298, 'decode_wall_s': 0.229, 'decode_tok_per_s': 165.7, 'ms_per_decode_step': 6.2, 'error': "ChunkedEncodingError(ProtocolError('Response ended prematurely'))"}
+  server unhealthy, restarting before target=8k
+server pid: 3732
+server ready
+[gpu-health] [WARN] GPU-7673eb19-23bf-370b-58b4-866699aaae3e: XID: NVRM: Xid (PCI:0000:f3:00): 31, pid=598883, name=python, channel 0x00000007, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_10 faulted @ 0x8063_2df00000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-a039ca64-c450-ab7c-baf1-4b8322a20583: XID: NVRM: Xid (PCI:0000:e3:00): 31, pid=598882, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_10 faulted @ 0x80b2_adcea000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-c8c9a518-7786-501c-286a-fc7664bd199c: XID: NVRM: Xid (PCI:0000:93:00): 31, pid=598881, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC4 GPCCLIENT_T1_10 faulted @ 0x806e_71f00000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+[gpu-health] [WARN] GPU-6dcac00b-57e7-bcad-2e27-00d2452d32aa: XID: NVRM: Xid (PCI:0000:83:00): 31, pid=598880, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC1 GPCCLIENT_T1_0 faulted @ 0x7f34_8c7ae000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+  target=8k rep=0 -> {'target_k': 8, 'repeat': 0, 'prompt_tokens': 8030, 'completion_tokens': 19, 'wall_s': 1.937, 'ttft_s': 1.55, 'decode_wall_s': 0.142, 'decode_tok_per_s': 134.1, 'ms_per_decode_step': 7.87, 'error': "ChunkedEncodingError(ProtocolError('Response ended prematurely'))"}
+  server unhealthy, restarting before target=16k
+server pid: 5281
+server ready
+[gpu-health] [WARN] GPU-6dcac00b-57e7-bcad-2e27-00d2452d32aa: XID: NVRM: Xid (PCI:0000:83:00): 31, pid=640831, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC1 GPCCLIENT_T1_0 faulted @ 0x7f06_a46b8000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+  target=16k rep=0 -> {'target_k': 16, 'repeat': 0, 'prompt_tokens': 16060, 'completion_tokens': 3, 'wall_s': 1.955, 'ttft_s': 1.801, 'decode_wall_s': 0.012, 'decode_tok_per_s': 260.1, 'ms_per_decode_step': 5.77, 'error': "ChunkedEncodingError(ProtocolError('Response ended prematurely'))"}
+  server unhealthy, restarting before target=32k
+server pid: 6598
+server ready
+[gpu-health] [WARN] GPU-6dcac00b-57e7-bcad-2e27-00d2452d32aa: XID: NVRM: Xid (PCI:0000:83:00): 31, pid=679723, name=python, channel 0x00000002, intr 00000000. MMU Fault: ENGINE GRAPHICS GPC1 GPCCLIENT_T1_0 faulted @ 0x7f62_ac33a000. Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+
+  target=32k rep=0 -> {'target_k': 32, 'repeat': 0, 'prompt_tokens': 32047, 'completion_tokens': 24, 'wall_s': 7.403, 'ttft_s': 7.133, 'decode_wall_s': 0.142, 'decode_tok_per_s': 168.5, 'ms_per_decode_step': 6.19, 'error': "ChunkedEncodingError(ProtocolError('Response ended prematurely'))"}
+  target=50k rep=0 SKIP — out of restarts
+  target=100k rep=0 SKIP — out of restarts
+  target=150k rep=0 SKIP — out of restarts
+  target=200k rep=0 SKIP — out of restarts
+  target=250k rep=0 SKIP — out of restarts
+  target=300k rep=0 SKIP — out of restarts
+  target=350k rep=0 SKIP — out of restarts
+  target=400k rep=0 SKIP — out of restarts
+  target=450k rep=0 SKIP — out of restarts
+  target=500k rep=0 SKIP — out of restarts
+wrote /traces/context_sweep.csv and /traces/context_sweep.txt
+{'n_rows': 14, 'csv': '/traces/context_sweep.csv', 'txt': '/traces/context_sweep.txt'}
+Stopping app - local entrypoint completed.
+[modal-client] 2026-05-20T17:05:31+1000 Timed out waiting for final app logs.
+✓ App completed. View run at 
+https://modal.com/apps/sam-mac446/main/ap-kH5fTQYR9dqaHQx4t5aVL4
