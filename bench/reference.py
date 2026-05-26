@@ -404,35 +404,41 @@ class HCADecodeInputs:
         Kc / Kswa     : either bf16 (oracle) or torch.float8_e4m3fn (faithful).
                         Last dim is `c` (no rope; rope is the separate tail).
         Kc_scales /   : torch.uint8 with values interpreted as e8m0 bytes
-        Kswa_scales     (= 2^(byte - 127)). One scale per 128-channel block.
+        Kswa_scales     (= 2^(byte - 127)). One scale per 64-channel block.
                         None when Kc/Kswa are bf16.
         Kc_rope/swa   : bf16 [B, n_kv, n_rope], RoPE already applied.
     """
     Q:           torch.Tensor          # [B, n_h, c + n_rope]
     Kc:          torch.Tensor          # [B, M_cur, c]
     Kc_rope:     torch.Tensor          # [B, M_cur, n_rope]
-    Kc_scales:   Optional[torch.Tensor]  # [B, M_cur, c // 128]  (e8m0 bytes)
+    Kc_scales:   Optional[torch.Tensor]  # [B, M_cur, c // 64]  (e8m0 bytes)
     Kswa:        torch.Tensor          # [B, swa_len, c]
     Kswa_rope:   torch.Tensor          # [B, swa_len, n_rope]
-    Kswa_scales: Optional[torch.Tensor]  # [B, swa_len, c // 128]
+    Kswa_scales: Optional[torch.Tensor]  # [B, swa_len, c // 64]
     sink_logits: torch.Tensor          # [n_h]
     sm_scale:    float                 # 1 / sqrt(c + n_rope), typically
 
 
 def _dequant_block_fp8(latent_fp8: torch.Tensor,
                        scales_e8m0: torch.Tensor) -> torch.Tensor:
-    """[..., c] fp8_e4m3 + [..., c/128] e8m0 bytes -> [..., c] bf16.
+    """[..., c] fp8_e4m3 + [..., c/64] e8m0 bytes -> [..., c] bf16.
 
     Mirrors helpers.h `fp8x2_to_bf16x2_with_scale`: cast fp8 -> bf16, multiply
     by 2^(byte - 127). Done in bf16 to track kernel numerics.
     """
     *lead, c = latent_fp8.shape
-    assert c % 128 == 0
-    n_blocks = c // 128
+    assert c % 64 == 0
+    n_blocks = c // 64
+    if tuple(scales_e8m0.shape) != (*lead, n_blocks):
+        raise ValueError(
+            "fp8 scale shape mismatch: "
+            f"latent={tuple(latent_fp8.shape)} scales={tuple(scales_e8m0.shape)} "
+            f"expected={(*lead, n_blocks)}"
+        )
     s_f32 = (scales_e8m0.to(torch.uint8).int() << 23).view(torch.float32)
     s_bf16 = s_f32.to(torch.bfloat16)                      # [..., n_blocks]
     bf = latent_fp8.to(torch.bfloat16)                     # [..., c]
-    bf = bf.view(*lead, n_blocks, 128) * s_bf16.unsqueeze(-1)
+    bf = bf.view(*lead, n_blocks, 64) * s_bf16.unsqueeze(-1)
     return bf.view(*lead, c)
 
 
@@ -467,7 +473,7 @@ def hca_decode_forward(
     *,
     dtype: str = "fp8",
 ) -> torch.Tensor:
-    """One decode step; returns O [B, n_h, c] in bf16.
+    """One decode step; returns O [B, n_h, c + n_rope] in bf16.
 
     Modes:
       dtype="fp32"          : everything in fp32; oracle.
@@ -497,7 +503,7 @@ def hca_decode_forward(
     # Symmetric path: round-trip Q-nope through e4m3+e8m0 to inject the same
     # rounding the score MMA sees on operand B.
     if dtype == "fp8":
-        QT = 128  # quant tile; matches HCADecodeSpec.quant_tile
+        QT = 64  # quant tile; matches HCADecodeSpec.quant_tile
         Q_nope = _quant_dequant_e4m3_e8m0(Q[..., :c], tile=QT)
         Q_rope = Q[..., c:].float()
         if quant_q_rope:
@@ -534,9 +540,9 @@ def hca_decode_forward(
         S_q = S_q[..., :nk]
         attn = S_q
 
-    # V = K-nope only.
+    # V follows the full 512-wide latent path: 448 NoPE + 64 RoPE.
     o = torch.einsum("bhk,bkc->bhc", attn.float(),
-                     torch.cat([Kc_nope, Kswa_nope], dim=1))
+                     torch.cat([Kc_full, Kswa_full], dim=1))
     return o.to(torch.bfloat16)
 
 

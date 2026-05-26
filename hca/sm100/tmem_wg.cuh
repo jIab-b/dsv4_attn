@@ -1,5 +1,5 @@
 ///*****************************************************************************
-///*** softmax / value epilogue
+///*** softmax wg
 ///*****************************************************************************
 
 struct SoftmaxPipelineState {
@@ -156,13 +156,29 @@ __device__ __forceinline__ void scale_and_store(
     auto* dst = reinterpret_cast<uint8_t*>(&smem.u.kv.softmax[buf][0]);
 
     for (int h = 0; h < 32; h += 2) {
-        const float p0 = exp2f(head_score[h]     - smem.curr_m[head_base + h]);
-        const float p1 = exp2f(head_score[h + 1] - smem.curr_m[head_base + h + 1]);
+        const int hi0 = head_base + h;
+        const int hi1 = head_base + h + 1;
+
+        // Per-(warp, head) MXFP8 e8m0 from already-reduced partial_m.
+        // All lanes compute the same value (smem broadcast read); lane 0 publishes.
+        const float bm0 = exp2f(smem.partial_m[wg_warp][h]     - smem.curr_m[hi0]);
+        const float bm1 = exp2f(smem.partial_m[wg_warp][h + 1] - smem.curr_m[hi1]);
+        const uint8_t e8_0 = f32_to_e8m0_rp(bm0 * (1.f / 448.f));
+        const uint8_t e8_1 = f32_to_e8m0_rp(bm1 * (1.f / 448.f));
+        if (ks.lane == 0) {
+            smem.value_mma_scales[buf][wg_warp][hi0] = e8_0;
+            smem.value_mma_scales[buf][wg_warp][hi1] = e8_1;
+        }
+        const float inv_0 = 1.f / e8m0_to_f32(e8_0);
+        const float inv_1 = 1.f / e8m0_to_f32(e8_1);
+
+        const float p0 = exp2f(head_score[h]     - smem.curr_m[hi0]) * inv_0;
+        const float p1 = exp2f(head_score[h + 1] - smem.curr_m[hi1]) * inv_1;
         uint16_t pair;
         asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;"
             : "=h"(pair) : "f"(p1), "f"(p0));
-        dst[(head_base + h)     * TILE_KV + tok_base] = uint8_t(pair & 0xff);
-        dst[(head_base + h + 1) * TILE_KV + tok_base] = uint8_t((pair >> 8) & 0xff);
+        dst[hi0 * TILE_KV + tok_base] = uint8_t(pair & 0xff);
+        dst[hi1 * TILE_KV + tok_base] = uint8_t((pair >> 8) & 0xff);
     }
 }
 
@@ -185,80 +201,6 @@ __device__ __forceinline__ void consume_score(
     mbar_arrive(smem.mbar_p_consumed[pipe.buf]);
 }
 
-// Phase 2: rescale O TMEM by alpha[h] (= curr_l[h] after update_rolling),
-// then hand off to value MMA. First tile skips the wait/rescale since no
-// prior value MMA has fired and O is not yet accumulated.
-__device__ __forceinline__ void value_release(
-    const HcaParams&, const KernelState& ks, Smem& smem,
-    SoftmaxPipelineState& pipe
-) {
-    if (pipe.released_value) {
-        mbar_wait(smem.mbar_sv_done[pipe.last_value_buf], pipe.last_value_phase);
-        tcgen05_fence_after_mma();
-
-        const int row = threadIdx.x & (B_H - 1);
-        const float alpha = smem.curr_l[row];
-
-        for (int chunk = 0; chunk < (D_V / 2) / 64; ++chunk) {
-            const int tmem_col = tmem_cols::O + chunk * 64;
-            float o0[32], o1[32];
-            tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col),      o0);
-            tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col + 32), o1);
-            for (int i = 0; i < 32; ++i) {
-                o0[i] *= alpha;
-                o1[i] *= alpha;
-            }
-            tcgen05_st_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col),      o0);
-            tcgen05_st_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col + 32), o1);
-        }
-    }
-
-    mbar_arrive(smem.mbar_so_ready[pipe.buf]);
-    advance_softmax_pipeline(pipe);
-}
-
-__device__ __forceinline__ void epilogue_write_O(
-    const HcaParams& p, const KernelState& ks, Smem& smem,
-    const SoftmaxPipelineState& pipe
-) {
-    if (!pipe.released_value) return;
-
-    mbar_wait(smem.mbar_sv_done[pipe.last_value_buf], pipe.last_value_phase);
-    tcgen05_fence_after_mma();
-
-    if (ks.partial_O == nullptr || ks.partial_lse == nullptr) return;
-
-    const int idx  = threadIdx.x;
-    const int row  = idx & (B_H - 1);
-    const int half = idx / B_H;
-    const float li = smem.rolling_l[row];
-    const float o_scale = li == 0.0f ? 0.0f : __fdividef(1.0f, li);
-
-    if (idx < B_H) {
-        ks.partial_lse[row] = li == 0.0f
-            ? -INFINITY
-            : smem.rolling_m[row] + log2f(li);
-    }
-
-    float* out = ks.partial_O + int64_t(row) * p.stride_partial_O_h;
-    for (int chunk = 0; chunk < (D_V / 2) / 64; ++chunk) {
-        const int tmem_col = tmem_cols::O + chunk * 64;
-        const int out_col =
-            half * (D_V / 4)
-            + (chunk * 64 >= D_V / 4 ? D_V / 2 : 0)
-            + (chunk * 64) % (D_V / 4);
-
-        float o0[32], o1[32];
-        tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col),      o0);
-        tcgen05_ld_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col + 32), o1);
-
-        for (int i = 0; i < 32; ++i) {
-            out[out_col + i]      = o0[i] * o_scale;
-            out[out_col + 32 + i] = o1[i] * o_scale;
-        }
-    }
-}
-
 __device__ __inline__ void softmax_warpgroup(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
@@ -268,15 +210,13 @@ __device__ __inline__ void softmax_warpgroup(
     auto run = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
             consume_score(p, ks, smem, r, r_end, pipe);
-            value_release(p, ks, smem,         pipe);
+            advance_softmax_pipeline(pipe);
         }
     };
     run(ks.compressed_start, ks.compressed_end);
     run(ks.swa_start,        ks.swa_end);
-
-    epilogue_write_O(p, ks, smem, pipe);
 }
 
 ///*****************************************************************************
-///*** end softmax / value epilogue
+///*** end softmax wg
 ///*****************************************************************************

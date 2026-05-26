@@ -86,19 +86,14 @@ __device__ __inline__ void hca_compress(
 
 __global__ void __launch_bounds__(NUM_THREADS, 1, 1)
 hca_decode_kernel(__grid_constant__ const HcaParams p) {
-    Smem& smem = shared_state();
 
+    
     prefetch_tma_descriptors(p);
-    init_smem(smem);
+    Smem smem; init_smem(&smem);
 
     KernelState ks;
     init_state(ks, p);
 
-    // TMEM alloc — warp-synchronous; all 32 lanes of warp 0 must execute.
-    if (ks.warp_idx == 0) {
-        tcgen05_alloc(&smem.tmem_start_addr, TMEM_NUM_COLS);
-        tcgen05_relinquish_alloc_permit();
-    }
     __syncthreads();
 
     if (ks.wg == 0) query_load(p, ks, smem);
@@ -107,6 +102,8 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
     if (ks.wg == 0) {
         softmax_warpgroup(p, ks, smem);
     } else if (ks.wg == 1) {
+        epi_wg(p, ks, smem);
+    } else if (ks.wg == 2) {
         switch (ks.warp_idx) {
             case 4: mma_warp             (p, ks, smem); break;
             case 5: nope_prod_warp       (p, ks, smem); break;
@@ -268,12 +265,12 @@ void launch_hca_decode(const HcaParams& p_in) {
 ///*** C ABI entry point — called via ctypes from python
 ///*****************************************************************************
 extern "C" int hca_decode_fwd(
-    const void* Q,                      // bf16 [B, n_h, c+n_rope]
+    const void* Q,                      // bf16 [B, n_h, c+n_rope], c = NoPE dim
     const void* Kc, const void* Kc_s, const void* Kc_rope,
     const void* Kswa, const void* Kswa_s, const void* Kswa_rope,
     const void* sink_logits,            // float [n_h] or null
-    void* O,                            // bf16 [B, n_h, c]
-    void* partial_O, void* partial_lse, // float [1, B, n_h, c], [1, B, n_h]
+    void* O,                            // bf16 [B, n_h, c+n_rope]
+    void* partial_O, void* partial_lse, // float [1, B, n_h, c+n_rope], [1, B, n_h]
     float sm_scale,
     int B, int n_h, int c, int n_rope,
     int M_cur, int swa_len,
@@ -300,23 +297,24 @@ extern "C" int hca_decode_fwd(
     pp.attn_sink   = (float*)sink_logits;
 
     const int d_q = c + n_rope;
+    const int scale_blocks = c / 64;
     pp.stride_Q_b = (int64_t)n_h * d_q;
-    pp.stride_O_b = (int64_t)n_h * c;
+    pp.stride_O_b = (int64_t)n_h * d_q;
     pp.stride_Kc_b        = (int64_t)M_cur   * c;
     pp.stride_Kc_n        = c;
-    pp.stride_Kc_scales_b = (int64_t)M_cur   * (c / 128);
-    pp.stride_Kc_scales_n = (c / 128);
+    pp.stride_Kc_scales_b = (int64_t)M_cur   * scale_blocks;
+    pp.stride_Kc_scales_n = scale_blocks;
     pp.stride_Kc_rope_b   = (int64_t)M_cur   * n_rope;
     pp.stride_Kc_rope_n   = n_rope;
     pp.stride_Kswa_b        = (int64_t)swa_len * c;
     pp.stride_Kswa_n        = c;
-    pp.stride_Kswa_scales_b = (int64_t)swa_len * (c / 128);
-    pp.stride_Kswa_scales_n = (c / 128);
+    pp.stride_Kswa_scales_b = (int64_t)swa_len * scale_blocks;
+    pp.stride_Kswa_scales_n = scale_blocks;
     pp.stride_Kswa_rope_b   = (int64_t)swa_len * n_rope;
     pp.stride_Kswa_rope_n   = n_rope;
-    pp.stride_partial_O_split = (int64_t)B * n_h * c;
-    pp.stride_partial_O_b     = (int64_t)n_h * c;
-    pp.stride_partial_O_h     = c;
+    pp.stride_partial_O_split = (int64_t)B * n_h * d_q;
+    pp.stride_partial_O_b     = (int64_t)n_h * d_q;
+    pp.stride_partial_O_h     = d_q;
     pp.stride_partial_lse_split = (int64_t)B * n_h;
     pp.stride_partial_lse_b     = n_h;
 
@@ -327,7 +325,7 @@ extern "C" int hca_decode_fwd(
     sm100::launch_hca_decode(pp);
 
     sm100::HcaCombineParams cp{};
-    cp.B = B; cp.H = n_h; cp.D = c; cp.num_splits = 1;
+    cp.B = B; cp.H = n_h; cp.D = d_q; cp.num_splits = 1;
     cp.partial_O   = (float*)partial_O;
     cp.partial_lse = (float*)partial_lse;
     cp.O           = (__nv_bfloat16*)O;
@@ -338,8 +336,8 @@ extern "C" int hca_decode_fwd(
     cp.stride_partial_O_h       = pp.stride_partial_O_h;
     cp.stride_partial_lse_split = pp.stride_partial_lse_split;
     cp.stride_partial_lse_b     = pp.stride_partial_lse_b;
-    cp.stride_O_b = (int64_t)n_h * c;
-    cp.stride_O_h = c;
+    cp.stride_O_b = (int64_t)n_h * d_q;
+    cp.stride_O_h = d_q;
     cp.stride_lse_b = n_h;
 
     sm100::launch_hca_combine(cp, (cudaStream_t)stream);

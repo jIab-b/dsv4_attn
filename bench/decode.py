@@ -1,13 +1,13 @@
 """Single-step HCA decode bench: spec, input builder, runner.
 
 Parallel to bench_core.py but specialized to the decode kernel boundary
-(pre-projected Q + pre-built fp8 KV cache, output [B, n_h, c]).
+(pre-projected Q + pre-built fp8 KV cache, output [B, n_h, c+n_rope]).
 
 Candidates live in `bench/candidates/` and declare `VARIANT = "hca_decode"`.
 The runner builds:
   - bf16 Q (per-row pre-RoPE'd, then RoPE applied to last n_rope dims)
   - bf16 K-nope which it quantizes to fp8 + e8m0 scales (matches the
-    inference engine's per-128 absmax recipe)
+    inference engine's per-64 absmax recipe)
   - bf16 K-rope tail
 for both the compressed leg (M_cur tokens) and the SWA leg (swa_len tokens).
 """
@@ -24,20 +24,24 @@ import statistics
 
 @dataclass
 class HCADecodeSpec:
-    """Decode-step shape. Defaults match V4-Pro head dims, scaled-down counts.
+    """Decode-step shape.
 
     M_cur is the populated compressed-cache length (not max). swa_len is the
     populated SWA length (≤ W_SWA=128).
+
+    The default n_h=128 matches the current hca/sm100 kernel, which hardcodes
+    two 64-head CTAs. Override n_h=64 for V4-Flash reference-only checks until
+    the CUDA kernel accepts the head count dynamically.
     """
     name: str = "hca_decode"
 
     B:        int = 1
-    n_h:      int = 64                # B_H per CTA in the kernel (H/2 split)
-    c:        int = 512               # head_dim (= D_NOPE / D_V in kernel)
+    n_h:      int = 128               # current SM100 kernel head count
+    c:        int = 448               # NoPE dim; full head_dim is c + n_rope = 512
     n_rope:   int = 64                # qk_rope_head_dim
     M_cur:    int = 256               # compressed cache fill
     swa_len:  int = 128               # SWA fill
-    quant_tile: int = 128             # 1×128 MX tile for fp8 cache
+    quant_tile: int = 64              # one e8m0 scale per 64 NoPE channels
 
     rms_norm_eps: float = 1e-6
 
@@ -59,6 +63,27 @@ class HCADecodeSpec:
         d = self.to_dict()
         d.update(kw)
         return HCADecodeSpec(**d)
+
+
+def validate_decode_spec(spec: HCADecodeSpec, *, dtype: str) -> None:
+    if dtype not in ("fp32", "fp8", "fp8_dequant", "fp8_rope"):
+        raise ValueError(f"dtype must be fp32 / fp8 / fp8_dequant / fp8_rope: {dtype!r}")
+    if spec.B <= 0 or spec.n_h <= 0:
+        raise ValueError(f"B and n_h must be positive: B={spec.B} n_h={spec.n_h}")
+    if spec.c <= 0 or spec.n_rope < 0:
+        raise ValueError(f"c must be positive and n_rope non-negative: c={spec.c} n_rope={spec.n_rope}")
+    if spec.c % spec.quant_tile != 0:
+        raise ValueError(f"c must be divisible by quant_tile: c={spec.c} quant_tile={spec.quant_tile}")
+    if spec.quant_tile != 64:
+        raise ValueError(f"bench/reference assumes e8m0 scales per 64 channels; got {spec.quant_tile}")
+    if spec.n_rope % 2 != 0:
+        raise ValueError(f"n_rope must be even for split-half RoPE: {spec.n_rope}")
+    if dtype == "fp8_rope" and spec.n_rope == 0:
+        raise ValueError("fp8_rope requires n_rope > 0")
+    if spec.M_cur < 0 or spec.swa_len < 0:
+        raise ValueError(f"M_cur and swa_len must be non-negative: M_cur={spec.M_cur} swa_len={spec.swa_len}")
+    if spec.M_cur + spec.swa_len <= 0:
+        raise ValueError("decode bench needs at least one KV entry")
 
 
 # ── Quant util (matches kernel's helpers.h cvt.rp ue8m0 path) ───────────
@@ -130,6 +155,8 @@ def build_decode_inputs(spec: HCADecodeSpec, *, device, generator, dtype: str):
     import torch
     from .reference import HCADecodeInputs
 
+    validate_decode_spec(spec, dtype=dtype)
+
     g = generator
     B, n_h, c, n_rope = spec.B, spec.n_h, spec.c, spec.n_rope
     M_cur, swa_len = spec.M_cur, spec.swa_len
@@ -166,8 +193,6 @@ def build_decode_inputs(spec: HCADecodeSpec, *, device, generator, dtype: str):
     elif dtype in ("fp8", "fp8_dequant", "fp8_rope"):
         Kc_q,   Kc_s   = _quant_kv_to_fp8(Kc_nope,   tile=spec.quant_tile)
         Kswa_q, Kswa_s = _quant_kv_to_fp8(Kswa_nope, tile=spec.quant_tile)
-    else:
-        raise ValueError(f"dtype must be fp32 / fp8 / fp8_dequant / fp8_rope: {dtype!r}")
 
     # `fp8_rope` mode: also round-trip rope through fp8 to measure the cost.
     if dtype == "fp8_rope":
@@ -254,6 +279,7 @@ def run_decode_bench(
     import torch
     if spec is None: spec = HCADecodeSpec()
     if spec_overrides: spec = spec.with_overrides(**spec_overrides)
+    validate_decode_spec(spec, dtype=dtype)
 
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

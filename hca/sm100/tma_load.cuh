@@ -2,11 +2,11 @@
 ///*** tma producers: q / nope / rope
 ///*****************************************************************************
 
-/// Loads Q from gmem and quantizes Q-nope to fp8 e4m3 + per-128 e8m0 scales.
+/// Loads Q from gmem and quantizes Q-nope to fp8 e4m3 + per-64 e8m0 scales.
 /// On exit:
 ///   smem.u.qo.q_sw64       : bf16 Q-rope, SW64  (untouched after TMA)
 ///   smem.u.qo.o_buf[fp8]   : fp8 Q-nope [B_H, D_NOPE], plain row-major
-///   o_buf + B_H*D_NOPE     : e8m0 scales [B_H, 16] = 4 per row x 4 replicas
+///   o_buf + B_H*D_NOPE     : e8m0 scales [B_H, 14] = 7 per row x 2 replicas
 ///                            (replicated to fit mxf8f6f4 scale_vec::1X / block-32)
 ///
 /// @pre  Called by all 128 threads of wg 0 (`if (wg == 0) query_load(...)`).
@@ -14,7 +14,9 @@
 ///       wg 0 enters here, so a block-wide barrier would deadlock wg 1.
 ///
 /// Pipeline: thread 0 issues 2x TMA (nope SW128, rope SW64) -> wg waits ->
-/// warp w owns kb=w (32 lanes x 4 bf16 = one 1x128 tile) -> warp absmax ->
+/// warp w owns one or more NoPE scale blocks. The cache scale block is 64
+/// channels; each cached e8m0 scale is replicated into two 32-channel MMA
+/// scale slots for mxf8f6f4.scale_vec::1X.
 /// cvt.rp.satfinite.ue8m0x2.f32 (ceil-pow2) -> cvt.rn.satfinite.e4m3x2.f32.
 ///
 /// @warning Assumes q_sw128 is plain row-major bf16. If TMA descriptor uses
@@ -33,7 +35,8 @@ void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
     }
     mbar_wait(smem.mbar_q_tma, 0);
 
-    // 2) Quant Q-nope. warp w owns kb=w; 32 lanes cover one 1x128 tile.
+    // 2) Quant Q-nope using cache-style 64-channel scale blocks, expanded to
+    // two 32-channel MMA scale slots.
     auto* q_fp8    = reinterpret_cast<__nv_fp8_e4m3*>(&smem.u.qo.o_buf[0]);
     auto* q_scales = reinterpret_cast<__nv_fp8_e8m0*>(
         reinterpret_cast<char*>(&smem.u.qo.o_buf[0]) + B_H * D_NOPE);

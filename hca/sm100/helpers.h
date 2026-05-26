@@ -53,7 +53,7 @@ struct alignas(16) Smem {
         // KV phase: live during mma loop
         struct {
             __nv_fp8_e4m3 latent[NUM_BUFS][TILE_KV * D_NOPE];               // 128 KB fp8 K/V staging
-            __nv_fp8_e8m0 scales[NUM_BUFS][TILE_KV * SCALES_PER_TOKEN];     //   1 KB e8m0 per-128 scales
+            __nv_fp8_e8m0 scales[NUM_BUFS][TILE_KV * SCALES_PER_TOKEN];     //   1 KB e8m0 per-64 scales
             __nv_bfloat16 rope  [NUM_BUFS][TILE_KV * D_ROPE];               //  32 KB bf16 rope
             __nv_fp8_e4m3 softmax[NUM_BUFS][B_H * TILE_KV];                 //  16 KB fp8 S^T for value MMA
         } kv;
@@ -69,6 +69,7 @@ struct alignas(16) Smem {
     float         rolling_l[B_H];                     // committed softmax sum per head row
     float         curr_m[B_H];                        // current-tile softmax max per head row
     float         curr_l[B_H];                        // current-tile softmax sum per head row
+    uint8_t       value_mma_scales[NUM_BUFS][2][B_H]; // e8m0 per (buf, warp, head) for fp8 P (value MMA B)
     uint32_t      tmem_start_addr;
 
     // mbarriers (inline)
@@ -277,9 +278,30 @@ __device__ __forceinline__ bool elect_one_sync() {
     return pred != 0;
 }
 
-__device__ __forceinline__ Smem& shared_state() {
+__device__ __forceinline__ Smem& init_smem() {
     extern __shared__ char __smem_storage[];
-    return *reinterpret_cast<Smem*>(__smem_storage);
+    Smem& smem = *reinterpret_cast<Smem*>(__smem_storage);
+    if (threadIdx.x == 0) {
+        mbar_init(smem.mbar_q_tma,      1);
+        mbar_init(smem.mbar_q_utccp,    1);
+        mbar_init(smem.mbar_last_store, 128);
+        #pragma unroll
+        for (int i = 0; i < NUM_BUFS; ++i) {
+            mbar_init(smem.mbar_rope_ready[i], 1);
+            mbar_init(smem.mbar_raw_ready [i], 1);
+            mbar_init(smem.mbar_qk_done   [i], 1);
+            mbar_init(smem.mbar_p_consumed[i], 128);
+            mbar_init(smem.mbar_so_ready  [i], 128);
+            mbar_init(smem.mbar_sv_done   [i], 1);
+        }
+        mbar_init(smem.mbar_cprss_in,      1);
+        mbar_init(smem.mbar_cprss_done,    1);
+        mbar_init(smem.mbar_softmax,       128);
+        mbar_init(smem.mbar_peer_partials, 129);
+        mbar_init(smem.mbar_leg_merge,     128);
+    }
+    __syncthreads();
+    return smem;
 }
 
 __device__ __forceinline__
@@ -675,33 +697,12 @@ void init_state(KernelState& ks, const HcaParams& p) {
         + int64_t(ks.partition_idx) * p.stride_partial_lse_split
         + int64_t(ks.batch_idx)     * p.stride_partial_lse_b
         + int64_t(ks.head_half_idx) * B_H;
-}
-
-__device__ __forceinline__
-void init_smem(Smem& smem) {
-    if (threadIdx.x == 0) {
-        mbar_init(smem.mbar_q_tma,      1);
-        mbar_init(smem.mbar_q_utccp,    1);
-        mbar_init(smem.mbar_last_store, 128);
-
-        #pragma unroll
-        for (int i = 0; i < NUM_BUFS; ++i) {
-            mbar_init(smem.mbar_rope_ready[i], 1);
-            mbar_init(smem.mbar_raw_ready [i], 1);
-            mbar_init(smem.mbar_qk_done   [i], 1);
-            mbar_init(smem.mbar_p_consumed[i], 128);
-            mbar_init(smem.mbar_so_ready  [i], 128);
-            mbar_init(smem.mbar_sv_done   [i], 1);
-        }
-
-        mbar_init(smem.mbar_cprss_in,   1);
-        mbar_init(smem.mbar_cprss_done, 1);
-        mbar_init(smem.mbar_softmax,    128);
-        mbar_init(smem.mbar_peer_partials, 129);
-        mbar_init(smem.mbar_leg_merge,  128);
+    if (ks.warp_idx == 0) {
+        tcgen05_alloc(&smem.tmem_start_addr, TMEM_NUM_COLS);
+        tcgen05_relinquish_alloc_permit();
     }
-    __syncthreads();
 }
+
 
 ///*****************************************************************************
 ///*** end init helpers

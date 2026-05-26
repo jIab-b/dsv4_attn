@@ -84,13 +84,20 @@ def candidate(inputs, *, spec):
     sink = inputs.sink_logits.contiguous() if inputs.sink_logits is not None else None
 
     B, n_h, dq = Q.shape
+    if n_h != 128:
+        raise ValueError(
+            "hca/sm100 currently hardcodes 128 heads; "
+            f"got n_h={n_h}. Use hca_decode_oracle for reference-only "
+            "n_h sweeps, or update the CUDA kernel before benchmarking this candidate."
+        )
     c = Kc.shape[-1]
     n_rope = dq - c
+    head_dim = c + n_rope
     M_cur = int(spec.M_cur)
     swa_len = int(spec.swa_len)
 
-    O = torch.empty(B, n_h, c, dtype=torch.bfloat16, device=Q.device)
-    partial_O   = torch.empty(1, B, n_h, c, dtype=torch.float32, device=Q.device)
+    O = torch.empty(B, n_h, head_dim, dtype=torch.bfloat16, device=Q.device)
+    partial_O   = torch.empty(1, B, n_h, head_dim, dtype=torch.float32, device=Q.device)
     partial_lse = torch.empty(1, B, n_h,    dtype=torch.float32, device=Q.device)
 
     stream = torch.cuda.current_stream(Q.device).cuda_stream

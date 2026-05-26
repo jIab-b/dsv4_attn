@@ -24,19 +24,19 @@ struct HcaParams {
     const __nv_bfloat16* __restrict__ Z;        // [B, m', c_out]
     const __nv_bfloat16* __restrict__ bias;     // [m', c_out]
 
-    // ---- compressed cache (fp8 e4m3 latent + e8m0 per-block scales + bf16 rope) ----
-    __nv_fp8_e4m3* __restrict__ Kc;             // [B, M_max, 512]   fp8 e4m3
-    __nv_fp8_e8m0* __restrict__ Kc_scales;      // [B, M_max, 4]     e8m0  (1 scale / 128 ch)
+    // ---- compressed cache (fp8 e4m3 NoPE + e8m0 per-block scales + bf16 rope) ----
+    __nv_fp8_e4m3* __restrict__ Kc;             // [B, M_max, 448]   fp8 e4m3 NoPE
+    __nv_fp8_e8m0* __restrict__ Kc_scales;      // [B, M_max, 7]     e8m0  (1 scale / 64 ch)
     __nv_bfloat16* __restrict__ Kc_rope;        // [B, M_max, 64]    bf16
 
     // ---- sliding-window cache (same dtype layout) ----
-    __nv_fp8_e4m3* __restrict__ Kswa;           // [B, W=128, 512]
-    __nv_fp8_e8m0* __restrict__ Kswa_scales;    // [B, W=128, 4]
+    __nv_fp8_e4m3* __restrict__ Kswa;           // [B, W=128, 448]
+    __nv_fp8_e8m0* __restrict__ Kswa_scales;    // [B, W=128, 7]
     __nv_bfloat16* __restrict__ Kswa_rope;      // [B, W=128, 64]
 
     // ---- Q / O for one decode step ----
-    __nv_bfloat16* __restrict__ Q;              // [B, 1, H=128, 512]
-    __nv_bfloat16* __restrict__ O;              // [B, 1, H=128, 512]
+    __nv_bfloat16* __restrict__ Q;              // [B, H, 512] = 448 NoPE + 64 RoPE
+    __nv_bfloat16* __restrict__ O;              // [B, H, 512]
     float* __restrict__ partial_O;              // [split, B, H, 512] split-K output
     float* __restrict__ partial_lse;            // [split, B, H]      split-K log2 LSE
 
