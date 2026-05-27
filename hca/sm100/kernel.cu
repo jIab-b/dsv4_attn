@@ -17,6 +17,7 @@ namespace dsv4::hca::sm100 {
 #include "tmem_wg.cuh"
 #include "tma_load.cuh"
 #include "mma.cuh"
+#include "epi_wg.cuh"
 
 ///*****************************************************************************
 ///*** end kernel component includes
@@ -89,10 +90,10 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
 
     
     prefetch_tma_descriptors(p);
-    Smem smem; init_smem(&smem);
+    Smem& smem = init_smem();
 
     KernelState ks;
-    init_state(ks, p);
+    init_state(ks, p, smem);
 
     __syncthreads();
 

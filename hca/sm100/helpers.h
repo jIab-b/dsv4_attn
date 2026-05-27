@@ -27,11 +27,13 @@ constexpr int QUANT_TILE  = 64;                // e8m0 group: 1 scale / 64 chann
 constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 7 (cache pads to 8 on disk)
 constexpr int NUM_THREADS = 256;               // 2 warpgroups: softmax, mma+producers
 constexpr int MMA_MXF8_K  = 32;
+constexpr int MMA_BF16_K  = 16;                // kind::f16 cta_group::2 dense K
 constexpr int SCORE_M     = TILE_KV;           // KV tokens
 constexpr int SCORE_N     = B_H;               // heads
 constexpr int VALUE_M     = 256;               // value dims per value-MMA chunk (V padded to 512)
 constexpr int VALUE_N     = B_H;               // heads
 constexpr int SCORE_K_BLOCKS = D_NOPE / MMA_MXF8_K;            // 14
+constexpr int ROPE_K_BLOCKS  = D_ROPE / MMA_BF16_K;            //  4
 constexpr int VALUE_DIM_BLOCKS = D_V / VALUE_M;                // 2
 constexpr int VALUE_TOKEN_BLOCKS = TILE_KV / MMA_MXF8_K;       // 4
 
@@ -84,16 +86,14 @@ struct alignas(16) Smem {
     uint64_t mbar_so_ready  [NUM_BUFS];
     uint64_t mbar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
 
-    // compressor branch (only used when partial_count == 127)
-    uint64_t mbar_cprss_in;
-    uint64_t mbar_cprss_done;
+    // chunked epilogue handshakes (see epi_wg.cuh): one pair per value-dim chunk
+    uint64_t mbar_so_ready_chunk[VALUE_DIM_BLOCKS][NUM_BUFS];
+    uint64_t mbar_sv_done_chunk [VALUE_DIM_BLOCKS][NUM_BUFS];
+    uint64_t mbar_alpha_ready   [NUM_BUFS];
 
     // softmax warpgroup row-half exchange
     uint64_t mbar_softmax;
     uint64_t mbar_peer_partials;
-
-    // leg merge (compressed -> SWA handoff of (m, l, O))
-    uint64_t mbar_leg_merge;
 };
 
 struct KernelState {
@@ -113,6 +113,9 @@ struct KernelState {
 
     float* partial_O;        // split-K partial output for this partition
     float* partial_lse;
+
+    // partial_O write-column per (chunk, half) — set by host/init layer
+    int    partial_O_out_col[VALUE_DIM_BLOCKS][2];
 };
 
 struct tmem_cols {
@@ -293,12 +296,15 @@ __device__ __forceinline__ Smem& init_smem() {
             mbar_init(smem.mbar_p_consumed[i], 128);
             mbar_init(smem.mbar_so_ready  [i], 128);
             mbar_init(smem.mbar_sv_done   [i], 1);
+            mbar_init(smem.mbar_alpha_ready[i], 1);
+            #pragma unroll
+            for (int c = 0; c < VALUE_DIM_BLOCKS; ++c) {
+                mbar_init(smem.mbar_so_ready_chunk[c][i], 128);
+                mbar_init(smem.mbar_sv_done_chunk [c][i], 1);
+            }
         }
-        mbar_init(smem.mbar_cprss_in,      1);
-        mbar_init(smem.mbar_cprss_done,    1);
         mbar_init(smem.mbar_softmax,       128);
         mbar_init(smem.mbar_peer_partials, 129);
-        mbar_init(smem.mbar_leg_merge,     128);
     }
     __syncthreads();
     return smem;
@@ -343,7 +349,7 @@ uint32_t tmem_addr(uint32_t base, int col, int lane = 0) {
 }
 
 // 256 columns covers O(128) + P(64) + 4×scale(16) = 256.
-constexpr int TMEM_NUM_COLS = 256;
+constexpr int TMEM_NUM_COLS = 512;
 
 __device__ __forceinline__
 void tcgen05_alloc(uint32_t* smem_dst, int n_cols) {
@@ -508,6 +514,15 @@ uint64_t make_kmajor_smem_desc(const void* ptr, uint32_t row_stride_elems) {
                           /*swizzle 32B=*/6u);
 }
 
+// 64-byte swizzle variant — matches the TMA descriptors used for Q-rope and
+// K-rope tiles (CU_TENSOR_MAP_SWIZZLE_64B).
+__device__ __forceinline__
+uint64_t make_kmajor_smem_desc_sw64(const void* ptr, uint32_t row_stride_elems) {
+    return make_smem_desc(ptr, /*leading=*/0,
+                          /*stride=*/8u * row_stride_elems,
+                          /*swizzle 64B=*/4u);
+}
+
 // Instruction descriptor for kind::mxf8f6f4 (PTX 9.7.16.4.2, Table 43).
 // atype/btype = e4m3 (=0), scale type = ue8m0 (=1), dense, no transpose,
 // SFA_ID = SFB_ID = 0 (caller iterates K-blocks via separate idesc updates).
@@ -519,6 +534,32 @@ uint32_t make_mxf8_idesc() {
     constexpr uint32_t n_field = (N >> 3) & 0x3F;     // bits 17-22
     constexpr uint32_t m_field = (M >> 7) & 0x3;      // bits 27-28
     return (n_field << 17) | (1u << 23) | (m_field << 27);
+}
+
+// Instruction descriptor for kind::f16 with bf16 A/B and fp32 D (PTX 9.7.16.4.2,
+// Table 42). Dense, no negate. TransA / TransB flip the descriptor's K-major
+// vs MN-major selector (bits 15/16) — leave both false when the contiguous dim
+// of the smem layout is the MMA's K dim.
+template<int M, int N, bool TransA = false, bool TransB = false>
+__device__ __forceinline__
+uint32_t make_bf16_idesc() {
+    static_assert(M == 128 || M == 256, "kind::f16 cta_group::2 requires M in {128,256}");
+    static_assert(N >= 16 && N <= 256 && (N % 16) == 0,
+                  "kind::f16 cta_group::2 requires N a multiple of 16 in [16, 256]");
+    constexpr uint32_t dtype   = 1u;                  // F32 (bits  4- 5)
+    constexpr uint32_t atype   = 1u;                  // BF16 (bits 7- 9)
+    constexpr uint32_t btype   = 1u;                  // BF16 (bits 10-12)
+    constexpr uint32_t trans_a = TransA ? 1u : 0u;    // bit 15
+    constexpr uint32_t trans_b = TransB ? 1u : 0u;    // bit 16
+    constexpr uint32_t n_field = (N >> 3) & 0x3Fu;    // bits 17-22
+    constexpr uint32_t m_field = (M >> 4) & 0x1Fu;    // bits 24-28
+    return (dtype   <<  4)
+         | (atype   <<  7)
+         | (btype   << 10)
+         | (trans_a << 15)
+         | (trans_b << 16)
+         | (n_field << 17)
+         | (m_field << 24);
 }
 
 // Score: A=K[token, dim], B=Q^T[dim, head], D=P[token, head].
@@ -537,6 +578,25 @@ uint64_t make_score_b_sdesc(const Smem& smem, int k_block) {
 
 __device__ __forceinline__
 uint32_t make_score_idesc() { return make_mxf8_idesc<SCORE_M, SCORE_N>(); }
+
+// Score-rope: A=K_rope[token, rope], B=Q_rope^T[rope, head], D=P[token, head].
+// Both operands are bf16 in smem with the rope axis (= K) contiguous, so the
+// descriptors are K-major. The rope tiles are loaded with SWIZZLE_64B, so the
+// sdesc must request 64B swizzling too.
+__device__ __forceinline__
+uint64_t make_score_rope_a_sdesc(const Smem& smem, int buf, int k_block) {
+    const auto* ptr = &smem.u.kv.rope[buf][k_block * MMA_BF16_K];
+    return make_kmajor_smem_desc_sw64(ptr, D_ROPE);
+}
+
+__device__ __forceinline__
+uint64_t make_score_rope_b_sdesc(const Smem& smem, int k_block) {
+    const auto* ptr = &smem.u.qo.q_sw64[k_block * MMA_BF16_K];
+    return make_kmajor_smem_desc_sw64(ptr, D_ROPE);
+}
+
+__device__ __forceinline__
+uint32_t make_score_rope_idesc() { return make_bf16_idesc<SCORE_M, SCORE_N>(); }
 
 // Value: A=V^T[value_dim, token], B=S[token, head], D=O^T[value_dim, head].
 // `latent` must be staged in V^T order before this descriptor is correct.
@@ -628,6 +688,47 @@ void score_mma(const Smem& smem, int buf, int k_block, bool accumulate) {
         accumulate);
 }
 
+// Inline tcgen05.mma SS form for kind::f16 with bf16 A/B and fp32 D
+// (PTX 9.7.16.10.9.1). disable_output_lane is forced to all-zero (zero in
+// register `z`, repeated eight times for cta_group::2); the M extent in the
+// idesc dictates which lanes are actually written.
+template<int M, int N>
+__device__ __forceinline__
+void tcgen05_bf16_2sm_ss(
+    uint32_t d_tmem,
+    uint64_t a_desc,
+    uint64_t b_desc,
+    bool accumulate
+) {
+    const uint32_t idesc = make_bf16_idesc<M, N>();
+    const uint32_t enable_in = accumulate ? 1u : 0u;
+    asm volatile(
+        "{\n"
+        ".reg .b32 z;\n"
+        "mov.b32 z, 0;\n"
+        ".reg .pred p;\n"
+        "setp.ne.u32 p, %4, 0;\n"
+        "tcgen05.mma.cta_group::2.kind::f16 "
+        "[%0], %1, %2, %3, {z, z, z, z, z, z, z, z}, p;\n"
+        "}\n"
+        :: "r"(d_tmem), "l"(a_desc), "l"(b_desc), "r"(idesc), "r"(enable_in)
+        : "memory");
+}
+
+// Rope contribution to the score tile. Accumulates into the same P TMEM region
+// as score_mma; the caller must have issued the nope k-blocks first (with
+// accumulate=false on kb=0) so this MMA folds rope on top with accumulate=true.
+__device__ __forceinline__
+void score_mma_rope(const Smem& smem, int buf, int k_block, bool accumulate) {
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
+    const uint64_t a_desc = make_score_rope_a_sdesc(smem, buf, k_block);
+    const uint64_t b_desc = make_score_rope_b_sdesc(smem, k_block);
+
+    tcgen05_fence_before_mma();
+    tcgen05_bf16_2sm_ss<SCORE_M, SCORE_N>(
+        d_tmem, a_desc, b_desc, accumulate);
+}
+
 // Value uses the same SS form. This assumes V is transposed/staged as
 // [value_dim, token] and softmax is staged as S^T [head, token].
 __device__ __forceinline__
@@ -675,7 +776,7 @@ int get_cta_rank_in_pair() {
 }
 
 __device__ __forceinline__
-void init_state(KernelState& ks, const HcaParams& p) {
+void init_state(KernelState& ks, const HcaParams& p, Smem& smem) {
     ks.batch_idx        = blockIdx.y;
     ks.head_half_idx    = blockIdx.z;
     ks.partition_idx    = blockIdx.x;
