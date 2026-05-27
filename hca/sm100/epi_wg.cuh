@@ -48,7 +48,7 @@ void advance_epi_pipeline(EpiloguePipelineState& pipe) {
 
 __device__ __forceinline__
 int chunk_tmem_col(int chunk) {
-    return tmem_cols::O + chunk * CHUNK_COLS;
+    return o_col(chunk);
 }
 
 // Rescale one 32-col half of a chunk in place. Reuses 32 fp32 regs.
@@ -61,7 +61,11 @@ void rescale_half(Smem& smem, int tmem_col, float alpha) {
     tcgen05_st_32x32b_x32(tmem_addr(smem.tmem_start_addr, tmem_col), o);
 }
 
-// One chunk: 2 mbar waits, 2 sequential 32-reg half-rescales, 1 cluster arrive.
+// One chunk: 2 mbar waits, 2 sequential 32-reg half-rescales (wg-collective),
+// 1 single-thread arrive. The two `mbar_wait`s above are observed by every wg
+// thread (count=1 mbars; multi-thread polling is fine — they all see the same
+// phase flip), but the post-rescale arrive must be single-thread because the
+// mbar's init count is 1.
 __device__ __forceinline__
 void rescale_chunk(
     Smem& smem,
@@ -80,7 +84,9 @@ void rescale_chunk(
     rescale_half(smem, base,             alpha);
     rescale_half(smem, base + HALF_COLS, alpha);
 
-    mbar_arrive(smem.mbar_so_ready_chunk[chunk][buf]);
+    sync_epi_wg();
+    if ((threadIdx.x & 127) == 0)
+        mbar_arrive(smem.mbar_so_ready_chunk[chunk][buf]);
 }
 
 // Final drain: wait all chunks of last tile, normalize O by rolling_l,
@@ -139,13 +145,26 @@ void epi_wg(const HcaParams& p, const KernelState& ks, Smem& smem) {
             #pragma unroll
             for (int chunk = 0; chunk < N_CHUNKS; ++chunk) {
                 if (!pipe.released_value) {
-                    mbar_arrive(smem.mbar_so_ready_chunk[chunk][pipe.buf]);
+                    // First tile bootstrap: no prior value MMA to rescale; just
+                    // unblock the value MMA so it can fire with accumulate=false
+                    // on its first contribution.
+                    sync_epi_wg();
+                    if ((threadIdx.x & 127) == 0)
+                        mbar_arrive(smem.mbar_so_ready_chunk[chunk][pipe.buf]);
                 } else {
                     rescale_chunk(smem,
                                   chunk,
                                   pipe.buf, pipe.last_value_buf,
                                   pipe.last_value_phase, pipe.alpha_phase);
                 }
+            }
+            // After processing this iter's rescales (which waited on tile
+            // `pipe.last_value_buf`'s sv_done), that KV buf is free for the
+            // producer to refill.
+            if (pipe.released_value) {
+                sync_epi_wg();
+                if ((threadIdx.x & 127) == 0)
+                    mbar_arrive(smem.mbar_kv_free[pipe.last_value_buf]);
             }
             advance_epi_pipeline(pipe);
         }
@@ -155,6 +174,13 @@ void epi_wg(const HcaParams& p, const KernelState& ks, Smem& smem) {
     run(ks.swa_start,        ks.swa_end);
 
     epi_drain(p, ks, smem, pipe);
+
+    // Final tile: epi_drain just waited on sv_done for pipe.last_value_buf —
+    // release that ring slot too (no producer is necessarily waiting for it at
+    // kernel end, but the arrive is harmless and keeps the ring invariant).
+    sync_epi_wg();
+    if ((threadIdx.x & 127) == 0 && pipe.released_value)
+        mbar_arrive(smem.mbar_kv_free[pipe.last_value_buf]);
 }
 
 ///*****************************************************************************

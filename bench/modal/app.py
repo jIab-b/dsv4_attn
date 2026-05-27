@@ -33,8 +33,6 @@ image = (
     .add_local_dir(LOCAL_BENCH,   remote_path=str(REMOTE_BENCH),   copy=True)
     .add_local_dir(LOCAL_KERNELS, remote_path=str(REMOTE_KERNELS), copy=True)
     .workdir(str(REMOTE_ROOT))
-    # nvcc-only build, no GPU. Cached.
-    .run_commands("cd /root/hca && python compile.py")
 )
 
 

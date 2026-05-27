@@ -1,5 +1,13 @@
 ///*****************************************************************************
 ///*** mma issue loop
+///***
+///*** Two single-elected threads (lane 0 = score, lane 1 = value) drive every
+///*** tcgen05.mma issue for the warpgroup. score_issue_thread folds nope (mxf8)
+///*** and rope (bf16) into a single P tile per buf; value_issue_thread walks
+///*** the chunked epi handshakes per buf.
+///***
+///*** All raw PTX (cp / mma / commit / fence) lives in helpers.h. Scale-factor
+///*** staging is delegated to scales.cuh.
 ///*****************************************************************************
 
 __device__ __forceinline__
@@ -8,76 +16,60 @@ void advance_issue_ring(int& buf, int& phase) {
     if (buf == 0) phase ^= 1;
 }
 
+// ---- score: nope (14 mxf8 K-blocks) + rope (4 bf16 K-blocks), accumulating
+//      into P[buf]. K-side score scales are staged per tile per buf; Q-side
+//      score scales are staged once at warpgroup entry (see mma_warp below).
 __device__ __forceinline__
-void tmem_store_e8m0_ones_x16(uint32_t addr) {
-    constexpr uint32_t one = 0x7f7f7f7f;  // four packed e8m0(1.0) bytes
-    asm volatile(
-        "tcgen05.st.sync.aligned.32x32b.x16.b32 [%0], "
-        "{%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1,%1};"
-        :: "r"(addr), "r"(one) : "memory");
-}
-
-__device__ __forceinline__
-void init_scale_tmem_ones(Smem& smem) {
-    tmem_store_e8m0_ones_x16(score_scale_a_tmem(smem));
-    tmem_store_e8m0_ones_x16(score_scale_b_tmem(smem));
-    tmem_store_e8m0_ones_x16(value_scale_a_tmem(smem));
-    tmem_store_e8m0_ones_x16(value_scale_b_tmem(smem));
-}
-
-__device__ __forceinline__
-void stage_score_scales(Smem&, int, int) {
-}
-
-__device__ __forceinline__
-void stage_value_scales(Smem&, int, int, int) {
-}
-
-__device__ __forceinline__
-void issue_score_tile(Smem& smem, int buf) {
+void issue_score_tile(const Smem& smem, int buf) {
     #pragma unroll
     for (int kb = 0; kb < SCORE_K_BLOCKS; ++kb) {
-        stage_score_scales(smem, buf, kb);
         score_mma(smem, buf, kb, /*accumulate=*/kb != 0);
+    }
+    #pragma unroll
+    for (int kb = 0; kb < ROPE_K_BLOCKS; ++kb) {
+        score_mma_rope(smem, buf, kb, /*accumulate=*/true);
     }
 }
 
+// ---- value: VALUE_TOKEN_BLOCKS mxf8 K-blocks for one chunk, accumulating
+//      into O[chunk]. `value_started[chunk]` flips to true after the chunk's
+//      first MMA on this tile so subsequent token-blocks accumulate; across
+//      tiles the running O sum lives in the same O[chunk] cols.
 __device__ __forceinline__
-void issue_value_tile(
-    Smem& smem,
-    int buf,
-    bool (&value_started)[VALUE_DIM_BLOCKS]
+void issue_value_chunk(
+    const Smem& smem, int buf, int chunk, bool (&value_started)[VALUE_DIM_BLOCKS]
 ) {
     #pragma unroll
-    for (int dim = 0; dim < VALUE_DIM_BLOCKS; ++dim) {
-        #pragma unroll
-        for (int tk = 0; tk < VALUE_TOKEN_BLOCKS; ++tk) {
-            stage_value_scales(smem, buf, dim, tk);
-            value_mma(
-                smem, buf, dim, tk,
-                /*accumulate=*/value_started[dim] || tk != 0);
-        }
-        value_started[dim] = true;
+    for (int tk = 0; tk < VALUE_TOKEN_BLOCKS; ++tk) {
+        value_mma(smem, buf, chunk, tk,
+                  /*accumulate=*/value_started[chunk] || tk != 0);
     }
+    value_started[chunk] = true;
 }
 
 __device__ __inline__ void score_issue_thread(
     const HcaParams&, const KernelState& ks, Smem& smem
 ) {
-    mbar_wait(smem.mbar_q_tma, 0);
-    mbar_arrive(smem.mbar_q_utccp);
-
     int buf   = 0;
     int phase = 0;
+    int iter  = 0;
 
     auto run_ring = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
-            mbar_wait(smem.mbar_raw_ready[buf], phase);
+            // KV (nope + scales + rope) landed for this buf.
+            mbar_wait(smem.mbar_kv_ready[buf], phase);
+            // P[buf] is double-buffered, but SCORE_SCALE_A[buf] sits on the
+            // same ring. After NUM_BUFS in-flight tiles, the softmax wg must
+            // have drained P[buf] before we issue the next score into it.
+            if (iter >= NUM_BUFS)
+                mbar_wait(smem.mbar_p_consumed[buf], phase ^ 1);
             tcgen05_fence_after_mma();
 
+            stage_score_kv_scales(smem, buf);
             issue_score_tile(smem, buf);
             tcgen05_commit(smem.mbar_qk_done[buf]);
 
+            ++iter;
             advance_issue_ring(buf, phase);
         }
     };
@@ -91,30 +83,38 @@ __device__ __inline__ void value_issue_thread(
 ) {
     int buf   = 0;
     int phase = 0;
-
     bool value_started[VALUE_DIM_BLOCKS] = {};
 
     auto run_ring = [&](int r_start, int r_end) {
         for (int r = r_start; r < r_end; r += TILE_KV) {
+            // Value SF are reused across both chunks of the tile — stage once
+            // per buf, outside the chunk loop. V scales = K scales (same fp8
+            // latent); P scales come from softmax via smem.value_mma_scales.
+            stage_value_scales_pair(smem, buf);
 
-            mbar_wait(smem.mbar_so_ready[buf], phase);
-            tcgen05_fence_after_mma();
-
-            issue_value_tile(smem, buf, value_started);
-            tcgen05_commit(smem.mbar_sv_done[buf]);
+            #pragma unroll
+            for (int c = 0; c < VALUE_DIM_BLOCKS; ++c) {
+                mbar_wait(smem.mbar_so_ready_chunk[c][buf], phase);
+                tcgen05_fence_after_mma();
+                issue_value_chunk(smem, buf, c, value_started);
+                tcgen05_commit(smem.mbar_sv_done_chunk[c][buf]);
+            }
 
             advance_issue_ring(buf, phase);
         }
     };
 
     run_ring(ks.compressed_start, ks.compressed_end);
-    run_ring(ks.swa_start, ks.swa_end);
+    run_ring(ks.swa_start,        ks.swa_end);
 }
 
 __device__ __inline__ void mma_warp(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
-    init_scale_tmem_ones(smem);
+    // Q-side score scales: Q is loaded once at prologue (query_load before the
+    // warpgroup branches). Stage SFB into TMEM here once, reused for every
+    // score MMA across the KV loop.
+    stage_score_q_scales(smem);
     __syncwarp();
 
     if (ks.lane == 0) {

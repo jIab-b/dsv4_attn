@@ -75,10 +75,21 @@ void query_load(const HcaParams& p, const KernelState& ks, Smem& smem) {
     }
 }
 
-__device__ __inline__ void nope_prod_warp(
+// Unified KV producer warp. One elected thread fires three TMA loads per tile
+// — nope latent, e8m0 scales, bf16 rope — all targeting a single mbar_kv_ready
+// per buf with one expect_tx covering the combined byte count. The score MMA
+// warp waits this one mbar before it can stage scales and issue.
+//
+// Ring reuse: after NUM_BUFS in-flight tiles, we wait on mbar_kv_free[buf] —
+// arrived by the epi wg once the full tile (both chunks) has been rescaled.
+__device__ __inline__ void kv_prod_warp(
     const HcaParams& p, const KernelState& ks, Smem& smem
 ) {
     if (!elect_one_sync()) return;
+
+    constexpr int TX_BYTES = TILE_KV * D_NOPE                                       // fp8 latent
+                           + TILE_KV * SCALES_PER_TOKEN                              // e8m0 scales
+                           + TILE_KV * D_ROPE * int(sizeof(__nv_bfloat16));          // bf16 rope
 
     int buf   = 0;
     int phase = 0;
@@ -86,51 +97,20 @@ __device__ __inline__ void nope_prod_warp(
 
     auto run_ring = [&](const CUtensorMap* tma_K,
                         const CUtensorMap* tma_S,
+                        const CUtensorMap* tma_R,
                         int r_start, int r_end)
     {
         for (int r = r_start; r < r_end; r += TILE_KV) {
             if (iter >= NUM_BUFS)
-                mbar_wait(smem.mbar_sv_done[buf], phase ^ 1);
+                mbar_wait(smem.mbar_kv_free[buf], phase ^ 1);
 
-            int tx = TILE_KV * D_NOPE
-                   + TILE_KV * SCALES_PER_TOKEN;
-            mbar_expect(smem.mbar_raw_ready[buf], tx);
-
+            mbar_expect(smem.mbar_kv_ready[buf], TX_BYTES);
             tma_load_3d(tma_K, ks.batch_idx, r, 0,
-                        &smem.u.kv.latent[buf], smem.mbar_raw_ready[buf]);
+                        &smem.u.kv.latent[buf], smem.mbar_kv_ready[buf]);
             tma_load_3d(tma_S, ks.batch_idx, r, 0,
-                        &smem.u.kv.scales[buf], smem.mbar_raw_ready[buf]);
-
-            ++iter;
-            buf = (buf + 1) % NUM_BUFS;
-            if (buf == 0) phase ^= 1;
-        }
-    };
-    run_ring(&p.tma_Kc,   &p.tma_Kc_scales,   ks.compressed_start, ks.compressed_end);
-    run_ring(&p.tma_Kswa, &p.tma_Kswa_scales, ks.swa_start,        ks.swa_end);
-}
-
-__device__ __inline__ void rope_prod_warp(
-    const HcaParams& p, const KernelState& ks, Smem& smem
-) {
-    if (!elect_one_sync()) return;
-
-    int buf   = 0;
-    int phase = 0;
-    int iter  = 0;
-
-    auto run_ring = [&](const CUtensorMap* tma_R,
-                        int r_start, int r_end)
-    {
-        for (int r = r_start; r < r_end; r += TILE_KV) {
-            if (iter >= NUM_BUFS)
-                mbar_wait(smem.mbar_qk_done[buf], phase ^ 1);
-
-            int tx = TILE_KV * D_ROPE * sizeof(__nv_bfloat16);
-            mbar_expect(smem.mbar_rope_ready[buf], tx);
-
+                        &smem.u.kv.scales[buf], smem.mbar_kv_ready[buf]);
             tma_load_3d(tma_R, ks.batch_idx, r, 0,
-                        &smem.u.kv.rope[buf], smem.mbar_rope_ready[buf]);
+                        &smem.u.kv.rope  [buf], smem.mbar_kv_ready[buf]);
 
             ++iter;
             buf = (buf + 1) % NUM_BUFS;
@@ -138,8 +118,10 @@ __device__ __inline__ void rope_prod_warp(
         }
     };
 
-    run_ring(&p.tma_Kc_rope,   ks.compressed_start, ks.compressed_end);
-    run_ring(&p.tma_Kswa_rope, ks.swa_start,        ks.swa_end);
+    run_ring(&p.tma_Kc,   &p.tma_Kc_scales,   &p.tma_Kc_rope,
+             ks.compressed_start, ks.compressed_end);
+    run_ring(&p.tma_Kswa, &p.tma_Kswa_scales, &p.tma_Kswa_rope,
+             ks.swa_start,        ks.swa_end);
 }
 
 ///*****************************************************************************

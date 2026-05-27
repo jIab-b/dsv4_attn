@@ -16,6 +16,7 @@ namespace dsv4::hca::sm100 {
 
 #include "tmem_wg.cuh"
 #include "tma_load.cuh"
+#include "scales.cuh"
 #include "mma.cuh"
 #include "epi_wg.cuh"
 
@@ -85,7 +86,7 @@ __device__ __inline__ void hca_compress(
 ///*** global kernel
 ///*****************************************************************************
 
-__global__ void __launch_bounds__(NUM_THREADS, 1, 1)
+__global__ void __launch_bounds__(NUM_THREADS, 1, 2)
 hca_decode_kernel(__grid_constant__ const HcaParams p) {
 
     
@@ -107,8 +108,8 @@ hca_decode_kernel(__grid_constant__ const HcaParams p) {
     } else if (ks.wg == 2) {
         switch (ks.warp_idx) {
             case 4: mma_warp             (p, ks, smem); break;
-            case 5: nope_prod_warp       (p, ks, smem); break;
-            case 6: rope_prod_warp       (p, ks, smem); break;
+            case 5: kv_prod_warp         (p, ks, smem); break;
+            case 6: /* reserved */                      break;
             case 7: compress_branch_warp (p, ks, smem); break;
         }
     }

@@ -30,7 +30,7 @@ __device__ __forceinline__ void init_rolling_state(Smem& smem) {
 // Per active thread: 32 fp32 head_score regs, alive past dsmem into scale_and_store.
 __device__ __forceinline__ void load_and_shuffle(
     const HcaParams& p, const KernelState& ks, Smem& smem,
-    int tile_start, int tile_end, int it, float (&head_score)[32]
+    int tile_start, int tile_end, int it, int buf, float (&head_score)[32]
 ) {
     const int wg_warp = ks.warp_idx & 3;
     if (wg_warp >= 2) return;
@@ -42,7 +42,7 @@ __device__ __forceinline__ void load_and_shuffle(
     const bool valid     = global_tok < tile_end;
 
     tcgen05_ld_32x32b_x32(
-        tmem_addr(smem.tmem_start_addr, tmem_cols::P, lane_base),
+        tmem_addr(smem.tmem_start_addr, p_col(buf), lane_base),
         head_score);
 
     for (int h = 0; h < 32; ++h)
@@ -192,13 +192,22 @@ __device__ __forceinline__ void consume_score(
 
     for (int it = 0; it < 2; ++it) {
         float head_score[32];
-        load_and_shuffle(p, ks, smem, tile_start, tile_end, it, head_score);
+        load_and_shuffle(p, ks, smem, tile_start, tile_end, it, pipe.buf, head_score);
         dsmem_reduce(ks, smem, it);
         update_rolling(smem, it);
         scale_and_store(ks, smem, pipe.buf, it, head_score);
     }
 
-    mbar_arrive(smem.mbar_p_consumed[pipe.buf]);
+    // All 128 wg threads must finish before either downstream-facing arrive:
+    //   p_consumed → score wg may reuse P[buf] (TMEM)
+    //   alpha_ready → epi wg may read curr_l (smem) for chunk rescale
+    // mbar counts are 1 (single-thread arrive); the wg-wide sync is the
+    // memory-ordering point.
+    sync_softmax_wg(smem);
+    if ((ks.warp_idx & 3) == 0 && ks.lane == 0) {
+        mbar_arrive(smem.mbar_p_consumed [pipe.buf]);
+        mbar_arrive(smem.mbar_alpha_ready[pipe.buf]);
+    }
 }
 
 __device__ __inline__ void softmax_warpgroup(

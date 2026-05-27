@@ -74,24 +74,21 @@ struct alignas(16) Smem {
     uint8_t       value_mma_scales[NUM_BUFS][2][B_H]; // e8m0 per (buf, warp, head) for fp8 P (value MMA B)
     uint32_t      tmem_start_addr;
 
-    // mbarriers (inline)
-    uint64_t mbar_q_tma;
-    uint64_t mbar_q_utccp;
-    uint64_t mbar_last_store;
+    // mbarriers (inline).
+    // Ring-buffer convention: every per-buf mbar pair is single-thread arrived
+    // (count = 1) and operates within the local CTA — cluster-spanning sync
+    // rides on the cta_group::2 MMA semantics, which collectively block until
+    // both CTAs reach the same issue point.
+    uint64_t mbar_q_tma;                                            // Q TMA landed
+    uint64_t mbar_kv_ready  [NUM_BUFS];                             // K nope+scales+rope landed (single expect_tx)
+    uint64_t mbar_kv_free   [NUM_BUFS];                             // epi → producer: ring slot reusable
+    uint64_t mbar_qk_done   [NUM_BUFS];                             // score MMA committed → softmax
+    uint64_t mbar_p_consumed[NUM_BUFS];                             // softmax done reading P TMEM
+    uint64_t mbar_alpha_ready[NUM_BUFS];                            // softmax published α → epi
+    uint64_t mbar_so_ready_chunk[VALUE_DIM_BLOCKS][NUM_BUFS];       // epi chunk rescale done → value MMA
+    uint64_t mbar_sv_done_chunk [VALUE_DIM_BLOCKS][NUM_BUFS];       // value MMA chunk committed → epi
 
-    uint64_t mbar_rope_ready[NUM_BUFS];
-    uint64_t mbar_raw_ready [NUM_BUFS];   // fp8 latent + scales landed
-    uint64_t mbar_qk_done   [NUM_BUFS];
-    uint64_t mbar_p_consumed[NUM_BUFS];   // softmax wg done reading P TMEM
-    uint64_t mbar_so_ready  [NUM_BUFS];
-    uint64_t mbar_sv_done   [NUM_BUFS];   // also serves as "latent buf free" for nope_prod
-
-    // chunked epilogue handshakes (see epi_wg.cuh): one pair per value-dim chunk
-    uint64_t mbar_so_ready_chunk[VALUE_DIM_BLOCKS][NUM_BUFS];
-    uint64_t mbar_sv_done_chunk [VALUE_DIM_BLOCKS][NUM_BUFS];
-    uint64_t mbar_alpha_ready   [NUM_BUFS];
-
-    // softmax warpgroup row-half exchange
+    // softmax warpgroup row-half exchange (intra-wg + cluster dsmem)
     uint64_t mbar_softmax;
     uint64_t mbar_peer_partials;
 };
@@ -118,14 +115,35 @@ struct KernelState {
     int    partial_O_out_col[VALUE_DIM_BLOCKS][2];
 };
 
+// TMEM allocation map (per CTA — kept symmetric across the cta_group::2 pair).
+// O is the persistent value-MMA accumulator (single instance; can't double-buffer
+// a running sum). Everything tied to the score/value tile pipeline is double-
+// buffered so the producer/consumer rings can stay in flight without contention.
+// SCORE_SCALE_B (Q-side) is single because Q is loaded once at prologue and its
+// scales never change across the KV loop.
+//
+// Total = 368 cols; allocated 512 to satisfy tcgen05.alloc's power-of-2 rule and
+// keep headroom for future buffers.
 struct tmem_cols {
-    static constexpr int O              =   0;   // 2 x 64-col fp32 value accum chunks
-    static constexpr int P              = 128;   // 64-col fp32 score tile: [128 kv, 64 head]
-    static constexpr int SCORE_SCALE_A  = 192;   // e8m0 K scales in TMEM sub-columns
-    static constexpr int SCORE_SCALE_B  = 208;   // e8m0 Q scales in TMEM sub-columns
-    static constexpr int VALUE_SCALE_A  = 224;   // e8m0 V scales; see value-scale caveat
-    static constexpr int VALUE_SCALE_B  = 240;   // e8m0 S scales
+    static constexpr int O_BASE              =   0;                    // 2 × 64 (per chunk)
+    static constexpr int O_PER_CHUNK         =  VALUE_N;               // 64
+    static constexpr int P_BASE              = 128;
+    static constexpr int P_STRIDE            =  64;                    // per buf
+    static constexpr int SCORE_SCALE_A_BASE  = P_BASE + NUM_BUFS * P_STRIDE;  // 256
+    static constexpr int SCORE_SCALE_STRIDE  =  16;                    // per buf
+    static constexpr int SCORE_SCALE_B       = SCORE_SCALE_A_BASE + NUM_BUFS * SCORE_SCALE_STRIDE;  // 288 (Q-side, shared)
+    static constexpr int VALUE_SCALE_A_BASE  = SCORE_SCALE_B + SCORE_SCALE_STRIDE;                  // 304
+    static constexpr int VALUE_SCALE_STRIDE  =  16;
+    static constexpr int VALUE_SCALE_B_BASE  = VALUE_SCALE_A_BASE + NUM_BUFS * VALUE_SCALE_STRIDE;  // 336
+    static constexpr int TOTAL               = VALUE_SCALE_B_BASE + NUM_BUFS * VALUE_SCALE_STRIDE;  // 368
 };
+
+__device__ __forceinline__ constexpr int p_col           (int buf)            { return tmem_cols::P_BASE              + buf * tmem_cols::P_STRIDE; }
+__device__ __forceinline__ constexpr int o_col           (int chunk)          { return tmem_cols::O_BASE              + chunk * tmem_cols::O_PER_CHUNK; }
+__device__ __forceinline__ constexpr int score_sf_a_col  (int buf)            { return tmem_cols::SCORE_SCALE_A_BASE  + buf * tmem_cols::SCORE_SCALE_STRIDE; }
+__device__ __forceinline__ constexpr int score_sf_b_col  ()                   { return tmem_cols::SCORE_SCALE_B;       }
+__device__ __forceinline__ constexpr int value_sf_a_col  (int buf)            { return tmem_cols::VALUE_SCALE_A_BASE  + buf * tmem_cols::VALUE_SCALE_STRIDE; }
+__device__ __forceinline__ constexpr int value_sf_b_col  (int buf)            { return tmem_cols::VALUE_SCALE_B_BASE  + buf * tmem_cols::VALUE_SCALE_STRIDE; }
 
 ///*****************************************************************************
 ///*** end data / structures
@@ -221,6 +239,14 @@ void sync_softmax_wg(Smem& smem) {
     mbar_wait_state(smem.mbar_softmax, state);
 }
 
+// Intra-warpgroup sync (128 threads). Uses bar.sync with a named barrier ID
+// distinct from __syncthreads' implicit barrier-0. Allows a single thread of
+// the wg to perform a follow-up mbar_arrive while guaranteeing all peer
+// warps' prior reads / writes are complete.
+__device__ __forceinline__ void sync_epi_wg() {
+    asm volatile("bar.sync 1, 128;" ::: "memory");
+}
+
 static constexpr uint64_t PEER_ADDR_MASK = 1ull << 24;
 
 template <typename T>
@@ -285,21 +311,20 @@ __device__ __forceinline__ Smem& init_smem() {
     extern __shared__ char __smem_storage[];
     Smem& smem = *reinterpret_cast<Smem*>(__smem_storage);
     if (threadIdx.x == 0) {
-        mbar_init(smem.mbar_q_tma,      1);
-        mbar_init(smem.mbar_q_utccp,    1);
-        mbar_init(smem.mbar_last_store, 128);
+        // All per-buf mbars are single-thread-arrived in this design — see the
+        // mbarrier comment block on Smem. Cluster-wide sync is implicit in the
+        // cta_group::2 MMA semantics, not encoded in arrive counts.
+        mbar_init(smem.mbar_q_tma, 1);
         #pragma unroll
         for (int i = 0; i < NUM_BUFS; ++i) {
-            mbar_init(smem.mbar_rope_ready[i], 1);
-            mbar_init(smem.mbar_raw_ready [i], 1);
-            mbar_init(smem.mbar_qk_done   [i], 1);
-            mbar_init(smem.mbar_p_consumed[i], 128);
-            mbar_init(smem.mbar_so_ready  [i], 128);
-            mbar_init(smem.mbar_sv_done   [i], 1);
+            mbar_init(smem.mbar_kv_ready   [i], 1);
+            mbar_init(smem.mbar_kv_free    [i], 1);
+            mbar_init(smem.mbar_qk_done    [i], 1);
+            mbar_init(smem.mbar_p_consumed [i], 1);
             mbar_init(smem.mbar_alpha_ready[i], 1);
             #pragma unroll
             for (int c = 0; c < VALUE_DIM_BLOCKS; ++c) {
-                mbar_init(smem.mbar_so_ready_chunk[c][i], 128);
+                mbar_init(smem.mbar_so_ready_chunk[c][i], 1);
                 mbar_init(smem.mbar_sv_done_chunk [c][i], 1);
             }
         }
@@ -388,6 +413,17 @@ __device__ __forceinline__ void tcgen05_commit(uint64_t& mbar) {
     asm volatile(
         "tcgen05.commit.cta_group" TCGEN05_CTA_GROUP ".mbarrier::arrive::one.b64 [%0];"
         :: "r"(addr));
+}
+
+// smem -> tmem block copy used to stage e8m0 scale factors before mxf8 MMA
+// (PTX 9.7.16.9.2). Shape 32x128b with warpx4 multicast: writes 32 lanes x
+// 128 bits = 512B per call, replicated across all 4 warps' lane partitions,
+// satisfying the "SF must be duplicated to all 32-lane partitions" requirement.
+__device__ __forceinline__
+void tcgen05_cp_2sm_32x128b_warpx4(uint32_t taddr, uint64_t sdesc) {
+    asm volatile(
+        "tcgen05.cp.cta_group" TCGEN05_CTA_GROUP ".32x128b.warpx4 [%0], %1;"
+        :: "r"(taddr), "l"(sdesc) : "memory");
 }
 
 __device__ __forceinline__ void tcgen05_wait_ld() {
@@ -523,6 +559,15 @@ uint64_t make_kmajor_smem_desc_sw64(const void* ptr, uint32_t row_stride_elems) 
                           /*swizzle 64B=*/4u);
 }
 
+// No-swizzle K-major descriptor — used as the source for tcgen05.cp staging
+// of scale-factor blocks, which arrive in smem unswizzled from TMA.
+__device__ __forceinline__
+uint64_t make_kmajor_smem_desc_nosw(const void* ptr, uint32_t row_stride_bytes) {
+    return make_smem_desc(ptr, /*leading=*/0,
+                          /*stride=*/row_stride_bytes,
+                          /*swizzle none=*/0u);
+}
+
 // Instruction descriptor for kind::mxf8f6f4 (PTX 9.7.16.4.2, Table 43).
 // atype/btype = e4m3 (=0), scale type = ue8m0 (=1), dense, no transpose,
 // SFA_ID = SFB_ID = 0 (caller iterates K-blocks via separate idesc updates).
@@ -619,23 +664,25 @@ __device__ __forceinline__
 uint32_t make_value_idesc() { return make_mxf8_idesc<VALUE_M, VALUE_N>(); }
 
 __device__ __forceinline__
-uint32_t score_scale_a_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_A);
+uint32_t score_scale_a_tmem(const Smem& smem, int buf) {
+    return tmem_addr(smem.tmem_start_addr, score_sf_a_col(buf));
 }
 
+// Q-side score scales are single-buffered: Q is loaded once at prologue and
+// its scales never change across the KV loop.
 __device__ __forceinline__
 uint32_t score_scale_b_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::SCORE_SCALE_B);
+    return tmem_addr(smem.tmem_start_addr, score_sf_b_col());
 }
 
 __device__ __forceinline__
-uint32_t value_scale_a_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_A);
+uint32_t value_scale_a_tmem(const Smem& smem, int buf) {
+    return tmem_addr(smem.tmem_start_addr, value_sf_a_col(buf));
 }
 
 __device__ __forceinline__
-uint32_t value_scale_b_tmem(const Smem& smem) {
-    return tmem_addr(smem.tmem_start_addr, tmem_cols::VALUE_SCALE_B);
+uint32_t value_scale_b_tmem(const Smem& smem, int buf) {
+    return tmem_addr(smem.tmem_start_addr, value_sf_b_col(buf));
 }
 
 ///*****************************************************************************
@@ -674,17 +721,18 @@ void tcgen05_mxf8_2sm_ss(
 }
 
 // A thin 2SM mxf8 score issue. The caller must have staged K/Q scale factors
-// into SCORE_SCALE_A/B before issuing this K=32 block.
+// into SCORE_SCALE_A[buf] / SCORE_SCALE_B before issuing this K=32 block. The
+// D output lands at P[buf].
 __device__ __forceinline__
 void score_mma(const Smem& smem, int buf, int k_block, bool accumulate) {
-    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, p_col(buf));
     const uint64_t a_desc = make_score_a_sdesc(smem, buf, k_block);
     const uint64_t b_desc = make_score_b_sdesc(smem, k_block);
 
     tcgen05_fence_before_mma();
     tcgen05_mxf8_2sm_ss<SCORE_M, SCORE_N>(
         d_tmem, a_desc, b_desc,
-        score_scale_a_tmem(smem), score_scale_b_tmem(smem),
+        score_scale_a_tmem(smem, buf), score_scale_b_tmem(smem),
         accumulate);
 }
 
@@ -715,12 +763,13 @@ void tcgen05_bf16_2sm_ss(
         : "memory");
 }
 
-// Rope contribution to the score tile. Accumulates into the same P TMEM region
-// as score_mma; the caller must have issued the nope k-blocks first (with
-// accumulate=false on kb=0) so this MMA folds rope on top with accumulate=true.
+// Rope contribution to the score tile. Accumulates into the same P[buf] TMEM
+// region as score_mma; the caller must have issued the nope k-blocks first
+// (with accumulate=false on kb=0) so this MMA folds rope on top with
+// accumulate=true.
 __device__ __forceinline__
 void score_mma_rope(const Smem& smem, int buf, int k_block, bool accumulate) {
-    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, tmem_cols::P);
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, p_col(buf));
     const uint64_t a_desc = make_score_rope_a_sdesc(smem, buf, k_block);
     const uint64_t b_desc = make_score_rope_b_sdesc(smem, k_block);
 
@@ -730,18 +779,18 @@ void score_mma_rope(const Smem& smem, int buf, int k_block, bool accumulate) {
 }
 
 // Value uses the same SS form. This assumes V is transposed/staged as
-// [value_dim, token] and softmax is staged as S^T [head, token].
+// [value_dim, token] and softmax is staged as S^T [head, token]. D=O is the
+// persistent attention accumulator and is single-buffered across the KV loop.
 __device__ __forceinline__
 void value_mma(const Smem& smem, int buf, int dim_block, int token_block, bool accumulate) {
-    const uint32_t d_tmem = tmem_addr(
-        smem.tmem_start_addr, tmem_cols::O + dim_block * VALUE_N);
+    const uint32_t d_tmem = tmem_addr(smem.tmem_start_addr, o_col(dim_block));
     const uint64_t a_desc = make_value_a_sdesc(smem, buf, dim_block, token_block);
     const uint64_t b_desc = make_value_b_sdesc(smem, buf, token_block);
 
     tcgen05_fence_before_mma();
     tcgen05_mxf8_2sm_ss<VALUE_M, VALUE_N>(
         d_tmem, a_desc, b_desc,
-        value_scale_a_tmem(smem), value_scale_b_tmem(smem),
+        value_scale_a_tmem(smem, buf), value_scale_b_tmem(smem, buf),
         accumulate);
 }
 
@@ -801,6 +850,15 @@ void init_state(KernelState& ks, const HcaParams& p, Smem& smem) {
     if (ks.warp_idx == 0) {
         tcgen05_alloc(&smem.tmem_start_addr, TMEM_NUM_COLS);
         tcgen05_relinquish_alloc_permit();
+    }
+    // partial_O write-column map: chunk c, half h → c·VALUE_M + h·HALF_COLS
+    // (HALF_COLS = 32, set in epi_wg.cuh). Matches the in-TMEM O layout: chunk
+    // c spans [c·VALUE_N, (c+1)·VALUE_N) cols, drained to partial_O at the same
+    // dim offset.
+    #pragma unroll
+    for (int c = 0; c < VALUE_DIM_BLOCKS; ++c) {
+        ks.partial_O_out_col[c][0] = c * VALUE_M + 0;
+        ks.partial_O_out_col[c][1] = c * VALUE_M + 32;
     }
 }
 
