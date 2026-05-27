@@ -5,6 +5,6 @@
 
 namespace dsv4::hca::sm100 {
 
-void launch_hca_decode(const HcaParams& p);
+void launch_hca_decode(const HcaParams& p, cudaStream_t stream);
 
 }

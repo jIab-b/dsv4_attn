@@ -20,13 +20,20 @@ VARIANT = "hca_decode"
 
 _LIB = None
 _FN  = None
+TILE_KV = 128
+MAX_TOKEN_SPLITS = 74
 
 
 def _hca_root() -> Path:
-    return Path(os.environ.get(
-        "DSV4_HCA_DIR",
-        str(Path(__file__).resolve().parent.parent.parent / "hca"),
-    ))
+    explicit = os.environ.get("DSV4_HCA_DIR")
+    if explicit:
+        return Path(explicit)
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        hca = parent / "hca"
+        if (hca / "compile.py").exists():
+            return hca
+    return here.parents[3] / "hca"
 
 
 def _resolve_so() -> Path:
@@ -67,7 +74,54 @@ def _load():
     _FN = fn
 
 
-def candidate(inputs, *, spec):
+def _decode_shape(inputs, spec):
+    Q = inputs.Q
+    Kc = inputs.Kc
+    B, n_h, dq = Q.shape
+    c = Kc.shape[-1]
+    n_rope = dq - c
+    head_dim = c + n_rope
+    M_cur = int(spec.M_cur)
+    swa_len = int(spec.swa_len)
+    total_tokens = M_cur + swa_len
+
+    if n_h != 128:
+        raise ValueError(
+            "hca/sm100 currently hardcodes 128 heads; "
+            f"got n_h={n_h}. Use hca_decode_oracle for reference-only "
+            "n_h sweeps, or update the CUDA kernel before benchmarking this candidate."
+        )
+    if c != 448 or n_rope != 64:
+        raise ValueError(
+            "hca/sm100 currently hardcodes c=448 and n_rope=64; "
+            f"got c={c} n_rope={n_rope}."
+        )
+    if total_tokens < TILE_KV or total_tokens % TILE_KV != 0:
+        raise ValueError(
+            "hca/sm100 host bench path only launches full 128-token split-K "
+            f"tiles for now; got M_cur+swa_len={total_tokens}."
+        )
+
+    num_splits = total_tokens // TILE_KV
+    if num_splits > MAX_TOKEN_SPLITS:
+        raise ValueError(
+            "hca/sm100 host bench path caps the main kernel at 74 split-K "
+            f"tiles / 148 CTAs per batch; got num_splits={num_splits}."
+        )
+    return B, n_h, c, n_rope, head_dim, M_cur, swa_len, num_splits
+
+
+def make_workspace(inputs, *, spec):
+    B, n_h, _c, _n_rope, head_dim, _M_cur, _swa_len, num_splits = _decode_shape(inputs, spec)
+    O = torch.empty(B, n_h, head_dim, dtype=torch.bfloat16, device=inputs.Q.device)
+    partial_O = torch.empty(
+        num_splits, B, n_h, head_dim, dtype=torch.float32, device=inputs.Q.device)
+    partial_lse = torch.empty(
+        num_splits, B, n_h, dtype=torch.float32, device=inputs.Q.device)
+    return O, partial_O, partial_lse
+
+
+def launch(inputs, *, spec, O, partial_O, partial_lse):
     _load()
 
     Q = inputs.Q.contiguous()
@@ -83,22 +137,7 @@ def candidate(inputs, *, spec):
     Kswa_rope = inputs.Kswa_rope.contiguous()
     sink = inputs.sink_logits.contiguous() if inputs.sink_logits is not None else None
 
-    B, n_h, dq = Q.shape
-    if n_h != 128:
-        raise ValueError(
-            "hca/sm100 currently hardcodes 128 heads; "
-            f"got n_h={n_h}. Use hca_decode_oracle for reference-only "
-            "n_h sweeps, or update the CUDA kernel before benchmarking this candidate."
-        )
-    c = Kc.shape[-1]
-    n_rope = dq - c
-    head_dim = c + n_rope
-    M_cur = int(spec.M_cur)
-    swa_len = int(spec.swa_len)
-
-    O = torch.empty(B, n_h, head_dim, dtype=torch.bfloat16, device=Q.device)
-    partial_O   = torch.empty(1, B, n_h, head_dim, dtype=torch.float32, device=Q.device)
-    partial_lse = torch.empty(1, B, n_h,    dtype=torch.float32, device=Q.device)
+    B, n_h, c, n_rope, _head_dim, M_cur, swa_len, _num_splits = _decode_shape(inputs, spec)
 
     stream = torch.cuda.current_stream(Q.device).cuda_stream
 
@@ -117,3 +156,8 @@ def candidate(inputs, *, spec):
     if rc != 0:
         raise RuntimeError(f"hca_decode_fwd cudaError={rc}")
     return O
+
+
+def candidate(inputs, *, spec):
+    O, partial_O, partial_lse = make_workspace(inputs, spec=spec)
+    return launch(inputs, spec=spec, O=O, partial_O=partial_O, partial_lse=partial_lse)

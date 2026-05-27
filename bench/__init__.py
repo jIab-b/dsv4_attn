@@ -1,22 +1,15 @@
-"""bench: benchmark harness for DeepSeek V4 attention variants (HCA, CSA).
+"""Compatibility package for the bench harness.
 
-Reference implementations follow SGLang's `Compressor` / `C4Indexer` /
-`MQALayer` (sgl-project/sglang@deepseek_v4) and vLLM's
-`DeepseekCompressor` / `DeepseekV4MLAAttention` (vllm-project/vllm
-PR#40760), reduced to a clean fp32 PyTorch eager form so candidate
-kernels can be compared for both correctness and speed.
-
-Variants:
-    hca  - Heavily Compressed Attention (m'=128, dense MQA over
-           compressed entries + sliding-window + attn_sink).
-    csa  - Compressed Sparse Attention (m=4 + lightning-indexer top-k
-           sparse MQA + sliding-window + attn_sink).
-
-Shape preset matches the public DeepSeek-V4-Pro config (qk_rope=64,
-head_dim=512, MQA single KV head). All sizes are reduced for a fast
-benchmark; override via `--shape`.
+The actual Python package lives in ``bench/bench``. This outer package keeps
+old ``python -m bench.cli`` and ``import bench.*`` paths working from repo root.
 """
+from pathlib import Path
+
+_INNER = Path(__file__).resolve().parent / "bench"
+if _INNER.is_dir():
+    __path__.insert(0, str(_INNER))
+
 __all__ = ["VARIANTS", "BenchResult"]
 
-from .config import VARIANTS  # noqa: F401
-from .bench_core import BenchResult  # noqa: F401
+from .config import VARIANTS  # noqa: E402,F401
+from .bench_core import BenchResult  # noqa: E402,F401

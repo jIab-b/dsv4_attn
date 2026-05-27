@@ -1,11 +1,12 @@
 """Modal app: B200 image + bench entry points.
 
 The image mounts:
-  /root/bench  ← bench/  (Python harness)
+  /root/bench_src  ← bench/  (Python package + scripts)
   /root/hca    ← hca/    (kernel source; compiled on demand by candidates)
 
 Functions:
   gpu_bench(...)   prefill HCA/CSA → run_bench()
+  gpu_compile(...) compile hca/build/libhca.so inside Modal
   gpu_smoke()      run all eager candidates with default shapes
   gpu_decode(...)  decode-step HCA → run_decode_bench()
 """
@@ -18,10 +19,10 @@ import modal
 
 APP_NAME       = "dsv4-attn-bench"
 GPU_TYPE       = "B200"
-LOCAL_BENCH    = Path(__file__).resolve().parent.parent          # bench/
-LOCAL_KERNELS  = LOCAL_BENCH.parent / "hca"                       # hca/
+LOCAL_BENCH    = Path(__file__).resolve().parents[2]             # bench/
+LOCAL_KERNELS  = LOCAL_BENCH.parent / "hca"                      # hca/
 REMOTE_ROOT    = Path("/root")
-REMOTE_BENCH   = REMOTE_ROOT / "bench"
+REMOTE_BENCH   = REMOTE_ROOT / "bench_src"
 REMOTE_KERNELS = REMOTE_ROOT / "hca"
 
 
@@ -39,8 +40,34 @@ image = (
 def _ensure_path():
     """Make `bench` and `hca` importable inside the Modal container."""
     import sys
-    if str(REMOTE_ROOT) not in sys.path:
-        sys.path.insert(0, str(REMOTE_ROOT))
+    for path in (REMOTE_BENCH, REMOTE_ROOT):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+
+
+# ── Compile ─────────────────────────────────────────────────────────────
+
+
+@app.function(image=image, timeout=600)
+def gpu_compile(extra_args: list[str] | None = None) -> dict:
+    """Compile hca/build/libhca.so inside the Modal image."""
+    _ensure_path()
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, str(REMOTE_KERNELS / "compile.py")]
+    if extra_args:
+        cmd.extend(extra_args)
+    proc = subprocess.run(cmd, text=True, capture_output=True, cwd=str(REMOTE_ROOT))
+    so = REMOTE_KERNELS / "build" / "libhca.so"
+    return {
+        "returncode": proc.returncode,
+        "cmd": cmd,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+        "so": str(so),
+        "exists": so.exists(),
+    }
 
 
 # ── Prefill bench ───────────────────────────────────────────────────────

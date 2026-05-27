@@ -23,6 +23,7 @@ constexpr int D_V         = 512;               // value-MMA M-axis cover; V is K
 constexpr int D_Q         = D_NOPE + D_ROPE;   // 512
 constexpr int M_PRIME     = 128;
 constexpr int W_SWA       = 128;
+constexpr int MAX_TOKEN_SPLITS = 74;
 constexpr int QUANT_TILE  = 64;                // e8m0 group: 1 scale / 64 channels
 constexpr int SCALES_PER_TOKEN = D_NOPE / QUANT_TILE;  // 7 (cache pads to 8 on disk)
 constexpr int NUM_THREADS = 256;               // 2 warpgroups: softmax, mma+producers
@@ -332,6 +333,9 @@ __device__ __forceinline__ Smem& init_smem() {
         mbar_init(smem.mbar_peer_partials, 129);
     }
     __syncthreads();
+    asm volatile("fence.mbarrier_init.release.cluster;" ::: "memory");
+    asm volatile("barrier.cluster.arrive.relaxed.aligned;" ::: "memory");
+    asm volatile("barrier.cluster.wait.acquire.aligned;" ::: "memory");
     return smem;
 }
 
@@ -827,16 +831,18 @@ int get_cta_rank_in_pair() {
 __device__ __forceinline__
 void init_state(KernelState& ks, const HcaParams& p, Smem& smem) {
     ks.batch_idx        = blockIdx.y;
-    ks.head_half_idx    = blockIdx.z;
-    ks.partition_idx    = blockIdx.x;
+    ks.cta_rank_in_pair = get_cta_rank_in_pair();
+    ks.head_half_idx    = ks.cta_rank_in_pair;
+    ks.partition_idx    = blockIdx.x >> 1;
     ks.wg               = threadIdx.x / 128;
     ks.warp_idx         = threadIdx.x / 32;
     ks.lane             = threadIdx.x & 31;
-    ks.cta_rank_in_pair = get_cta_rank_in_pair();
-    ks.compressed_start = 0;            // TODO: derive from host scheduler
-    ks.compressed_end   = p.M_cur;
-    ks.swa_start        = 0;
-    ks.swa_end          = p.swa_len;
+    const int tile_start = ks.partition_idx * TILE_KV;
+    const int tile_end   = tile_start + TILE_KV;
+    ks.compressed_start = min(tile_start, p.M_cur);
+    ks.compressed_end   = min(tile_end,   p.M_cur);
+    ks.swa_start        = max(0, min(tile_start - p.M_cur, p.swa_len));
+    ks.swa_end          = max(0, min(tile_end   - p.M_cur, p.swa_len));
     ks.partial_O        = p.partial_O == nullptr ? nullptr :
         p.partial_O
         + int64_t(ks.partition_idx) * p.stride_partial_O_split

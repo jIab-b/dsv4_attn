@@ -86,12 +86,20 @@ __device__ __inline__ void hca_compress(
 ///*** global kernel
 ///*****************************************************************************
 
-__global__ void __launch_bounds__(NUM_THREADS, 1, 2)
+__global__
+__cluster_dims__(2, 1, 1)
+__launch_bounds__(NUM_THREADS)
+void
 hca_decode_kernel(__grid_constant__ const HcaParams p) {
 
     
     prefetch_tma_descriptors(p);
     Smem& smem = init_smem();
+
+    const int num_splits = (p.M_cur + p.swa_len) / TILE_KV;
+    if (int(blockIdx.x >> 1) >= num_splits) {
+        return;
+    }
 
     KernelState ks;
     init_state(ks, p, smem);
@@ -169,7 +177,7 @@ constexpr uint64_t bf16_b = sizeof(__nv_bfloat16);
 
 }  // namespace
 
-void launch_hca_decode(const HcaParams& p_in) {
+void launch_hca_decode(const HcaParams& p_in, cudaStream_t stream) {
     HcaParams p = p_in;
 
     const int B    = p.B;
@@ -237,24 +245,16 @@ void launch_hca_decode(const HcaParams& p_in) {
         cudaFuncAttributeMaxDynamicSharedMemorySize,
         int(smem_bytes));
 
-    dim3 grid(/*splits*/ 1, /*B*/ B, /*head_halves*/ 2);
+    const int total_tokens = p.M_cur + p.swa_len;
+    if (B <= 0 || total_tokens < TILE_KV || (total_tokens % TILE_KV) != 0 ||
+        (total_tokens / TILE_KV) > MAX_TOKEN_SPLITS) {
+        return;
+    }
+
+    dim3 grid(/*max_split_cta_pairs*/ MAX_TOKEN_SPLITS * 2, /*B*/ B, 1);
     dim3 block(NUM_THREADS, 1, 1);
 
-    // 2-CTA cluster for tcgen05.cta_group::2. Pair along z (the head-halves
-    // axis) so the cluster dim divides the grid (z=2 → 2 CTAs per cluster).
-    cudaLaunchConfig_t cfg = {};
-    cfg.gridDim          = grid;
-    cfg.blockDim         = block;
-    cfg.dynamicSmemBytes = smem_bytes;
-    cfg.stream           = 0;
-
-    cudaLaunchAttribute attrs[1] = {};
-    attrs[0].id = cudaLaunchAttributeClusterDimension;
-    attrs[0].val.clusterDim = {1, 1, 2};
-    cfg.attrs    = attrs;
-    cfg.numAttrs = 1;
-
-    cudaLaunchKernelEx(&cfg, hca_decode_kernel, p);
+    hca_decode_kernel<<<grid, block, smem_bytes, stream>>>(p);
 }
 
 ///*****************************************************************************
@@ -324,10 +324,19 @@ extern "C" int hca_decode_fwd(
     pp.rope_theta_compressed = 10000.0f;
     pp.rope_theta_swa        = 10000.0f;
 
-    sm100::launch_hca_decode(pp);
+    const int total_tokens = M_cur + swa_len;
+    if (B <= 0 || n_h != 128 || c != D_NOPE || n_rope != D_ROPE ||
+        total_tokens < TILE_KV || (total_tokens % TILE_KV) != 0 ||
+        (total_tokens / TILE_KV) > MAX_TOKEN_SPLITS) {
+        return (int)cudaErrorInvalidValue;
+    }
+
+    cudaStream_t cuda_stream = (cudaStream_t)stream;
+    sm100::launch_hca_decode(pp, cuda_stream);
 
     sm100::HcaCombineParams cp{};
-    cp.B = B; cp.H = n_h; cp.D = d_q; cp.num_splits = 1;
+    const int num_splits = total_tokens / TILE_KV;
+    cp.B = B; cp.H = n_h; cp.D = d_q; cp.num_splits = num_splits;
     cp.partial_O   = (float*)partial_O;
     cp.partial_lse = (float*)partial_lse;
     cp.O           = (__nv_bfloat16*)O;
@@ -342,7 +351,7 @@ extern "C" int hca_decode_fwd(
     cp.stride_O_h = d_q;
     cp.stride_lse_b = n_h;
 
-    sm100::launch_hca_combine(cp, (cudaStream_t)stream);
+    sm100::launch_hca_combine(cp, cuda_stream);
 
     cudaError_t err = cudaGetLastError();
     return (int)err;

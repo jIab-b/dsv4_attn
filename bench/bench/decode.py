@@ -299,6 +299,8 @@ def run_decode_bench(
     cand_call = lambda: candidate(inp, spec=spec)
     try:
         cand_out = cand_call()
+        if device.type == "cuda":
+            torch.cuda.synchronize()
     except Exception as exc:
         return DecodeBenchResult(
             spec=spec.to_dict(), candidate=candidate_name, dtype=dtype,
